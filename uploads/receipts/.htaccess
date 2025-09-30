@@ -1,0 +1,5 @@
+# /daily_closing/uploads/.htaccess
+php_flag engine off
+RemoveHandler .php .php5 .phtml .phar
+RemoveType .php .php5 .phtml .phar
+Options -ExecCGI
