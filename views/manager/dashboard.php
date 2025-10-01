@@ -4,7 +4,11 @@ require __DIR__ . '/../../includes/db.php';
 guard_manager();
 
 $uid = current_manager_id();
-$today = date('Y-m-d');
+$stmtToday = $pdo->query("SELECT CURDATE() AS today");
+$today = $stmtToday->fetchColumn();
+if (!$today) {
+    $today = date('Y-m-d');
+}
 
 // today totals across all outlets
 $stmt = $pdo->prepare("

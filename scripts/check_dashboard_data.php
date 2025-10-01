@@ -22,12 +22,20 @@ if ($managerId <= 0) {
     exit(1);
 }
 
-$dateArg = $argv[2] ?? date('Y-m-d');
-try {
-    $today = (new DateTimeImmutable($dateArg))->format('Y-m-d');
-} catch (Exception $e) {
-    fwrite(STDERR, "Invalid date provided. Use format YYYY-MM-DD.\n");
-    exit(1);
+$today = null;
+if (isset($argv[2])) {
+    try {
+        $today = (new DateTimeImmutable($argv[2]))->format('Y-m-d');
+    } catch (Exception $e) {
+        fwrite(STDERR, "Invalid date provided. Use format YYYY-MM-DD.\n");
+        exit(1);
+    }
+} else {
+    $stmtToday = $pdo->query("SELECT CURDATE() AS today");
+    $today = $stmtToday->fetchColumn();
+    if (!$today) {
+        $today = date('Y-m-d');
+    }
 }
 
 printf("Checking dashboard data for manager #%d on %s\n\n", $managerId, $today);
