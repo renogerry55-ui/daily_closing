@@ -44,6 +44,7 @@ $overallInc = 0.0; $overallExp = 0.0; $overallBal = 0.0;
     <a class="navbar-brand" href="/daily_closing/views/manager/dashboard.php">Daily Closing</a>
     <div class="ms-auto d-flex gap-2">
       <a class="btn btn-outline-secondary btn-sm" href="/daily_closing/manager_submissions.php">My Submissions</a>
+      <a class="btn btn-outline-secondary btn-sm" href="/daily_closing/manager_hq_batches.php">HQ History</a>
       <a class="btn btn-outline-danger btn-sm" href="/daily_closing/logout.php">Logout</a>
     </div>
   </div>

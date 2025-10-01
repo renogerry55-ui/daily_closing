@@ -24,6 +24,7 @@
   <div class="container">
     <a class="navbar-brand" href="/daily_closing/views/manager/dashboard.php">Daily Closing</a>
     <div class="ms-auto d-flex gap-2">
+      <a class="btn btn-outline-secondary btn-sm" href="/daily_closing/manager_hq_batches.php">HQ History</a>
       <a class="btn btn-outline-secondary btn-sm" href="/daily_closing/manager_submissions.php">Back to submissions</a>
       <button class="btn btn-dark btn-sm" onclick="window.print()">Print</button>
     </div>
