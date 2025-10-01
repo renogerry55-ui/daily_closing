@@ -1,12 +1,12 @@
-/*
-Assumptions & Notes:
-- Target database is MySQL 8.0+ using InnoDB with utf8mb4_unicode_ci collation.
-- Existing `users` and `submissions` tables expose primary keys as BIGINT UNSIGNED `id` columns.
-- Status lifecycle for HQ packages is `draft`, `submitted`, `approved`, or `rejected`; default is `draft`.
-- Monetary totals are stored with DECIMAL(12,2) precision, reflecting PHP's rounding before persistence.
-- `pass_to_hq` is treated as a boolean flag (0 = no, 1 = yes).
-Please review and adjust data types, constraints, and enumerated values to match your production schema before executing.
-*/
+-- Assumptions & Notes:
+-- * Target database is MySQL 8.0+.
+-- * Confirmed via `SHOW CREATE TABLE users;` that the table uses `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+--   with a primary key column defined as ``id` int(10) unsigned NOT NULL AUTO_INCREMENT`.
+-- * Confirmed via `SHOW CREATE TABLE submissions;` that the table uses `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+--   with a primary key column defined as ``id` int(10) unsigned NOT NULL AUTO_INCREMENT`.
+-- * Status lifecycle for HQ packages is `draft`, `submitted`, `approved`, or `rejected`; default is `draft`.
+-- * Monetary totals are stored with DECIMAL(12,2) precision, reflecting PHP's rounding before persistence.
+-- * `pass_to_hq` is treated as a boolean flag (0 = no, 1 = yes).
 
 START TRANSACTION;
 
@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS `hq_packages` (
   `total_income` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `total_expenses` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `total_balance` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-  `created_by` BIGINT UNSIGNED NOT NULL,
-  `approved_by` BIGINT UNSIGNED DEFAULT NULL,
+  `created_by` INT UNSIGNED NOT NULL,
+  `approved_by` INT UNSIGNED DEFAULT NULL,
   `approved_at` DATETIME DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS `hq_packages` (
 CREATE TABLE IF NOT EXISTS `hq_package_items` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `package_id` BIGINT UNSIGNED NOT NULL,
-  `submission_id` BIGINT UNSIGNED NOT NULL,
+  `submission_id` INT UNSIGNED NOT NULL,
   `pass_to_hq` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
