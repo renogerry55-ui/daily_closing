@@ -80,8 +80,12 @@ while ($row = $stmt3->fetch(PDO::FETCH_ASSOC)) {
     }
 
     if (!empty($row['file_path'])) {
+        $path = $row['file_path'];
+        if (strpos($path, '/daily_closing/') !== 0) {
+            $path = '/daily_closing' . $path;
+        }
         $todaySubs[$oid][$sid]['receipts'][] = [
-            'path' => $row['file_path'],
+            'path' => $path,
             'name' => $row['original_name'],
         ];
     }
