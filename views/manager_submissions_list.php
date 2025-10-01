@@ -1,7 +1,8 @@
 <?php
 // /daily_closing/views/manager_submissions_list.php
 // Variables available:
-// $rows, $status, $outlets, $outletId, $dateFrom, $dateTo, $page, $pages, $total
+// $rows, $status, $outlets, $outletId, $dateFrom, $dateTo, $page, $pages, $total, $queryParams
+$queryParams = $queryParams ?? [];
 ?>
 <!doctype html>
 <html lang="en">
@@ -43,9 +44,10 @@
       <div class="col-md-4">
         <label class="form-label">Outlet</label>
         <select name="outlet_id" class="form-select">
-          <option value="0">All outlets</option>
+          <option value="" <?= $outletId === null ? 'selected' : '' ?>>All outlets</option>
           <?php foreach ($outlets as $o): ?>
-            <option value="<?= (int)$o['id'] ?>" <?= (!empty($outletId) && (int)$o['id']===$outletId)?'selected':'' ?>>
+            <?php $selected = ($outletId !== null && (int)$o['id'] === (int)$outletId) ? 'selected' : ''; ?>
+            <option value="<?= (int)$o['id'] ?>" <?= $selected ?>>
               <?= htmlspecialchars($o['name']) ?>
             </option>
           <?php endforeach; ?>
@@ -53,11 +55,11 @@
       </div>
       <div class="col-md-3">
         <label class="form-label">Date from</label>
-        <input type="date" name="date_from" value="<?= htmlspecialchars($dateFrom ?? '') ?>" class="form-control">
+        <input type="date" name="date_from" value="<?= htmlspecialchars($dateFrom) ?>" class="form-control">
       </div>
       <div class="col-md-3">
         <label class="form-label">Date to</label>
-        <input type="date" name="date_to" value="<?= htmlspecialchars($dateTo ?? '') ?>" class="form-control">
+        <input type="date" name="date_to" value="<?= htmlspecialchars($dateTo) ?>" class="form-control">
       </div>
       <div class="col-md-2 d-grid">
         <button class="btn btn-primary" type="submit">Filter</button>
@@ -113,10 +115,15 @@
     <?php if ($pages > 1): ?>
       <nav aria-label="pagination">
         <ul class="pagination">
-          <?php for ($p=1;$p<=$pages;$p++): ?>
+          <?php
+            $baseQuery = $queryParams ?? [];
+            for ($p = 1; $p <= $pages; $p++):
+              $pageQuery = $baseQuery;
+              $pageQuery['page'] = $p;
+              $pageUrl = '/daily_closing/manager_submissions.php?' . http_build_query($pageQuery);
+          ?>
             <li class="page-item <?= $p===$page?'active':'' ?>">
-              <a class="page-link"
-                 href="/daily_closing/manager_submissions.php?status=<?= urlencode($status) ?>&outlet_id=<?= (int)$outletId ?>&date_from=<?= htmlspecialchars($dateFrom) ?>&date_to=<?= htmlspecialchars($dateTo) ?>&page=<?= $p ?>">
+              <a class="page-link" href="<?= htmlspecialchars($pageUrl) ?>">
                  <?= $p ?>
               </a>
             </li>

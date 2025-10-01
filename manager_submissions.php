@@ -10,8 +10,13 @@ $managerId = current_manager_id();
 $outlets = allowed_outlets($pdo); // [{id,name},...]
 
 // --- filters ---
-$status  = $_GET['status']  ?? 'all';
-$outletF = isset($_GET['outlet_id']) && $_GET['outlet_id'] !== '' ? (int)$_GET['outlet_id'] : null;
+$status    = $_GET['status']    ?? 'all';
+$outletF   = isset($_GET['outlet_id']) && $_GET['outlet_id'] !== '' ? (int)$_GET['outlet_id'] : null;
+$dateFrom  = $_GET['date_from']  ?? '';
+$dateTo    = $_GET['date_to']    ?? '';
+
+// expose selected outlet (null when not filtered) for the view
+$outletId = $outletF ?? null;
 
 $allowedStatus = ['all','pending','approved','rejected','recorded'];
 if (!in_array($status, $allowedStatus, true)) $status = 'all';
@@ -56,6 +61,12 @@ $sql = "
 $stmt = $pdo->prepare($sql);
 $stmt->execute($args);
 $rows = $stmt->fetchAll();
+
+// shared query parameters for pagination links
+$queryParams = ['status' => $status];
+if ($outletId !== null) $queryParams['outlet_id'] = $outletId;
+if ($dateFrom !== '')  $queryParams['date_from']  = $dateFrom;
+if ($dateTo !== '')    $queryParams['date_to']    = $dateTo;
 
 // hand to view
 require __DIR__ . '/views/manager_submissions_list.php';
