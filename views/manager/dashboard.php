@@ -4,10 +4,21 @@ require __DIR__ . '/../../includes/db.php';
 guard_manager();
 
 $uid = current_manager_id();
+$phpToday = (new DateTimeImmutable('today'))->format('Y-m-d');
 $stmtToday = $pdo->query("SELECT CURDATE() AS today");
-$today = $stmtToday->fetchColumn();
-if (!$today) {
-    $today = date('Y-m-d');
+$today = $stmtToday->fetchColumn() ?: $phpToday;
+
+if ($today !== $phpToday) {
+    $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM submissions WHERE manager_id = ? AND date = ?");
+    $stmtCheck->execute([$uid, $today]);
+    $countDbDay = (int)$stmtCheck->fetchColumn();
+
+    if ($countDbDay === 0) {
+        $stmtCheck->execute([$uid, $phpToday]);
+        if ((int)$stmtCheck->fetchColumn() > 0) {
+            $today = $phpToday;
+        }
+    }
 }
 
 // today totals across all outlets
