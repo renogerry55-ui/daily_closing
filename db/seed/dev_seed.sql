@@ -1,0 +1,4 @@
+-- Development seed data (optional).
+-- Add INSERT statements here for local testing only.
+-- Example:
+-- INSERT INTO outlets (name, status) VALUES ('Demo Outlet', 'active');
