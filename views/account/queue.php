@@ -3,7 +3,7 @@ require __DIR__ . '/../../includes/auth.php';
 require_role(['account']);
 require __DIR__ . '/../../includes/db.php';
 
-$sql = "SELECT p.id, p.package_date, p.created_at, p.status, p.total_income, p.total_expenses, p.total_balance,
+$sql = "SELECT p.id, p.package_date, p.created_at, p.approved_at, p.status, p.total_income, p.total_expenses, p.total_balance,
                creator.name AS created_by_name,
                approver.name AS approved_by_name,
                COUNT(DISTINCT hpi.submission_id) AS submission_count,
@@ -20,7 +20,9 @@ $sql = "SELECT p.id, p.package_date, p.created_at, p.status, p.total_income, p.t
         GROUP BY p.id
         ORDER BY COALESCE(p.package_date, p.created_at) DESC, p.id DESC";
 
-$packages = $pdo->query($sql)->fetchAll();
+$stmt = $pdo->prepare($sql);
+$stmt->execute();
+$packages = $stmt->fetchAll();
 
 function format_money($amount): string
 {

@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($username === '' || $password === '') {
         $error = 'Please fill in both fields.';
     } else {
-        $stmt = $pdo->prepare("SELECT id, name, username, password_hash, role FROM users WHERE username = ?");
+        $stmt = $pdo->prepare("SELECT id, name, username, password_hash, role, outlet_id FROM users WHERE username = ?");
         $stmt->execute([$username]);
         $user = $stmt->fetch();
 

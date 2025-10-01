@@ -22,7 +22,8 @@ function login_user(array $user): void {
     $_SESSION['user_id']   = (int)$user['id'];
     $_SESSION['name']      = $user['name'];
     $_SESSION['role']      = strtolower($user['role']);
-    $_SESSION['outlet_id'] = $user['outlet_id']; // can be null
+    $outletId = $user['outlet_id'] ?? null;
+    $_SESSION['outlet_id'] = $outletId === null ? null : (int)$outletId;
     session_regenerate_id(true); // prevent session fixation
 }
 
