@@ -81,6 +81,7 @@ if (BLOCK_DUPLICATES_PER_DATE && $outletId > 0 && $date) {
 $dt = new DateTime($date ?: 'today');
 if (!empty($_FILES['receipts']) && is_array($_FILES['receipts']['name'])) {
     for ($i=0, $n=count($_FILES['receipts']['name']); $i<$n; $i++) {
+        if (($_FILES['receipts']['error'][$i] ?? null) === UPLOAD_ERR_NO_FILE) { continue; }
         $tmp = [
             'name'     => $_FILES['receipts']['name'][$i],
             'type'     => $_FILES['receipts']['type'][$i],

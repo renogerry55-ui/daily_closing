@@ -47,6 +47,7 @@ function save_receipts(array $files, DateTime $dt, array &$err): array {
     // Normalize $_FILES multiple input
     $count = is_array($files['name']) ? count($files['name']) : 0;
     for ($i=0; $i<$count; $i++) {
+        if (($files['error'][$i] ?? null) === UPLOAD_ERR_NO_FILE) { continue; }
         $f = [
             'name'     => $files['name'][$i],
             'type'     => $files['type'][$i],
@@ -86,6 +87,7 @@ function save_hq_files(array $files, DateTime $dt, array &$err): array {
 
     $count = is_array($files['name']) ? count($files['name']) : 0;
     for ($i=0; $i<$count; $i++) {
+        if (($files['error'][$i] ?? null) === UPLOAD_ERR_NO_FILE) { continue; }
         $f = [
             'name'     => $files['name'][$i],
             'type'     => $files['type'][$i],
