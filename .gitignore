@@ -1,29 +1,6 @@
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE/editor files
-.vscode/
-.idea/
-
-# XAMPP uploads & cache
-/uploads/receipts/
-uploads/
-tmp/
-cache/
-
-# Environment & config
-*.env
-db.php
-config.php
-
-# Dependencies
-vendor/
-node_modules/
-
-# Logs
+.env
+/db/dumps/
+/uploads/
+/vendor/
+/node_modules/
 *.log
-
-# Composer & npm debug
-composer.lock
-npm-debug.log
