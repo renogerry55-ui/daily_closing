@@ -1,6 +1,6 @@
 -- MariaDB dump 10.19  Distrib 10.4.32-MariaDB, for Win64 (AMD64)
 --
--- Host: 127.0.0.1    Database: daily_closing
+-- Host: localhost    Database: daily_closing
 -- ------------------------------------------------------
 -- Server version	10.4.32-MariaDB
 
@@ -37,6 +37,15 @@ CREATE TABLE `hq_batch_files` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `hq_batch_files`
+--
+
+LOCK TABLES `hq_batch_files` WRITE;
+/*!40000 ALTER TABLE `hq_batch_files` DISABLE KEYS */;
+/*!40000 ALTER TABLE `hq_batch_files` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `hq_batch_submissions`
 --
 
@@ -52,6 +61,15 @@ CREATE TABLE `hq_batch_submissions` (
   CONSTRAINT `fk_hq_sub_submit` FOREIGN KEY (`submission_id`) REFERENCES `submissions` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `hq_batch_submissions`
+--
+
+LOCK TABLES `hq_batch_submissions` WRITE;
+/*!40000 ALTER TABLE `hq_batch_submissions` DISABLE KEYS */;
+/*!40000 ALTER TABLE `hq_batch_submissions` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `hq_batches`
@@ -78,6 +96,16 @@ CREATE TABLE `hq_batches` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `hq_batches`
+--
+
+LOCK TABLES `hq_batches` WRITE;
+/*!40000 ALTER TABLE `hq_batches` DISABLE KEYS */;
+INSERT INTO `hq_batches` VALUES (1,1,'2025-10-01','submitted',11000.00,1010.00,9990.00,'','2025-10-01 02:31:07','2025-10-01 02:31:07');
+/*!40000 ALTER TABLE `hq_batches` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `hq_package_items`
 --
 
@@ -98,6 +126,15 @@ CREATE TABLE `hq_package_items` (
   CONSTRAINT `fk_hq_package_items_submission` FOREIGN KEY (`submission_id`) REFERENCES `submissions` (`id`) ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `hq_package_items`
+--
+
+LOCK TABLES `hq_package_items` WRITE;
+/*!40000 ALTER TABLE `hq_package_items` DISABLE KEYS */;
+/*!40000 ALTER TABLE `hq_package_items` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `hq_packages`
@@ -129,6 +166,55 @@ CREATE TABLE `hq_packages` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `hq_packages`
+--
+
+LOCK TABLES `hq_packages` WRITE;
+/*!40000 ALTER TABLE `hq_packages` DISABLE KEYS */;
+/*!40000 ALTER TABLE `hq_packages` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `hq_remittances`
+--
+
+DROP TABLE IF EXISTS `hq_remittances`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `hq_remittances` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `outlet_id` int(11) NOT NULL,
+  `submission_id` int(11) DEFAULT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `received_at` date NOT NULL,
+  `status` enum('pending','approved','declined') NOT NULL DEFAULT 'pending',
+  `approved_by` int(11) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `bank_ref` varchar(120) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_hr_outlet` (`outlet_id`),
+  KEY `idx_hr_status_date` (`status`,`received_at`),
+  KEY `idx_hr_outlet_date` (`outlet_id`,`received_at`),
+  KEY `fk_hr_submission` (`submission_id`),
+  KEY `fk_hr_approved_by` (`approved_by`),
+  CONSTRAINT `fk_hr_approved_by` FOREIGN KEY (`approved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_hr_outlet` FOREIGN KEY (`outlet_id`) REFERENCES `outlets` (`id`),
+  CONSTRAINT `fk_hr_submission` FOREIGN KEY (`submission_id`) REFERENCES `submissions` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `hq_remittances`
+--
+
+LOCK TABLES `hq_remittances` WRITE;
+/*!40000 ALTER TABLE `hq_remittances` DISABLE KEYS */;
+/*!40000 ALTER TABLE `hq_remittances` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `outlets`
 --
 
@@ -143,6 +229,16 @@ CREATE TABLE `outlets` (
   UNIQUE KEY `uq_outlets_name` (`name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `outlets`
+--
+
+LOCK TABLES `outlets` WRITE;
+/*!40000 ALTER TABLE `outlets` DISABLE KEYS */;
+INSERT INTO `outlets` VALUES (1,'Outlet Marina','active'),(2,'Outlet Tudan','active');
+/*!40000 ALTER TABLE `outlets` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `receipts`
@@ -166,6 +262,15 @@ CREATE TABLE `receipts` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Dumping data for table `receipts`
+--
+
+LOCK TABLES `receipts` WRITE;
+/*!40000 ALTER TABLE `receipts` DISABLE KEYS */;
+/*!40000 ALTER TABLE `receipts` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `submission_items`
 --
 
@@ -184,8 +289,18 @@ CREATE TABLE `submission_items` (
   KEY `idx_items_submission` (`submission_id`,`type`),
   KEY `idx_items_type_cat` (`type`,`category`),
   CONSTRAINT `fk_items_submission` FOREIGN KEY (`submission_id`) REFERENCES `submissions` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `submission_items`
+--
+
+LOCK TABLES `submission_items` WRITE;
+/*!40000 ALTER TABLE `submission_items` DISABLE KEYS */;
+INSERT INTO `submission_items` VALUES (5,3,'income','MP',200.00,NULL,'2025-10-01 14:09:44'),(6,3,'income','Deposit',1000.00,NULL,'2025-10-01 14:09:44'),(7,3,'income','Berhad',30.00,NULL,'2025-10-01 14:09:44'),(8,3,'income','Market',40.00,NULL,'2025-10-01 14:09:44'),(9,3,'expense','Staff Salary',200.00,NULL,'2025-10-01 14:09:44');
+/*!40000 ALTER TABLE `submission_items` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `submissions`
@@ -212,10 +327,21 @@ CREATE TABLE `submissions` (
   KEY `idx_submissions_outlet_date` (`outlet_id`,`date`),
   KEY `idx_submissions_status_date` (`status`,`date`),
   KEY `idx_submissions_manager_date` (`manager_id`,`date`),
+  KEY `idx_submissions_mgr_outlet_date_status` (`manager_id`,`outlet_id`,`date`,`status`),
   CONSTRAINT `fk_sub_manager` FOREIGN KEY (`manager_id`) REFERENCES `users` (`id`),
   CONSTRAINT `fk_sub_outlet` FOREIGN KEY (`outlet_id`) REFERENCES `outlets` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `submissions`
+--
+
+LOCK TABLES `submissions` WRITE;
+/*!40000 ALTER TABLE `submissions` DISABLE KEYS */;
+INSERT INTO `submissions` VALUES (2,1,2,'2025-10-01','pending',1000.00,10.00,990.00,'testing',NULL,'2025-10-01 10:31:07','2025-10-01 01:00:02','2025-10-01 02:31:07'),(3,1,1,'2025-10-01','pending',1270.00,200.00,1070.00,'',NULL,NULL,'2025-10-01 14:09:44','2025-10-01 14:09:44');
+/*!40000 ALTER TABLE `submissions` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `test_table_mig`
@@ -230,6 +356,15 @@ CREATE TABLE `test_table_mig` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `test_table_mig`
+--
+
+LOCK TABLES `test_table_mig` WRITE;
+/*!40000 ALTER TABLE `test_table_mig` DISABLE KEYS */;
+/*!40000 ALTER TABLE `test_table_mig` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `user_outlets`
@@ -247,6 +382,16 @@ CREATE TABLE `user_outlets` (
   CONSTRAINT `fk_uo_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `user_outlets`
+--
+
+LOCK TABLES `user_outlets` WRITE;
+/*!40000 ALTER TABLE `user_outlets` DISABLE KEYS */;
+INSERT INTO `user_outlets` VALUES (1,1),(1,2);
+/*!40000 ALTER TABLE `user_outlets` ENABLE KEYS */;
+UNLOCK TABLES;
 
 --
 -- Table structure for table `users`
@@ -268,6 +413,16 @@ CREATE TABLE `users` (
   CONSTRAINT `fk_users_outlet` FOREIGN KEY (`outlet_id`) REFERENCES `outlets` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `users`
+--
+
+LOCK TABLES `users` WRITE;
+/*!40000 ALTER TABLE `users` DISABLE KEYS */;
+INSERT INTO `users` VALUES (1,'Test Manager','manager1','$2y$10$HewwLNjXPk.boO9wIuwble3gis.tB0xH3708nxN2P23.o2ZE7b4OW','manager',NULL),(2,'Test Account','account1','$2y$10$HewwLNjXPk.boO9wIuwble3gis.tB0xH3708nxN2P23.o2ZE7b4OW','account',NULL),(3,'Test Finance','finance1','$2y$10$HewwLNjXPk.boO9wIuwble3gis.tB0xH3708nxN2P23.o2ZE7b4OW','finance',NULL),(4,'Test CEO','ceo1','$2y$10$HewwLNjXPk.boO9wIuwble3gis.tB0xH3708nxN2P23.o2ZE7b4OW','ceo',NULL),(5,'Test Admin','admin1','$2y$10$HewwLNjXPk.boO9wIuwble3gis.tB0xH3708nxN2P23.o2ZE7b4OW','admin',NULL);
+/*!40000 ALTER TABLE `users` ENABLE KEYS */;
+UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -278,4 +433,4 @@ CREATE TABLE `users` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-10-01 15:28:07
+-- Dump completed on 2025-10-02  0:07:58
