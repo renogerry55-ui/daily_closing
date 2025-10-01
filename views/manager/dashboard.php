@@ -19,7 +19,7 @@ $tot = $stmt->fetch() ?: ['inc'=>0,'exp'=>0,'bal'=>0];
 
 // per-outlet cards (today)
 $stmt2 = $pdo->prepare("
-  SELECT o.name, COALESCE(SUM(s.total_income),0) inc, COALESCE(SUM(s.total_expenses),0) exp, COALESCE(SUM(s.balance),0) bal
+  SELECT o.id, o.name, COALESCE(SUM(s.total_income),0) inc, COALESCE(SUM(s.total_expenses),0) exp, COALESCE(SUM(s.balance),0) bal
   FROM user_outlets uo
   JOIN outlets o ON o.id = uo.outlet_id
   LEFT JOIN submissions s ON s.outlet_id=o.id AND s.manager_id=uo.user_id AND s.date=CURDATE()
@@ -29,6 +29,47 @@ $stmt2 = $pdo->prepare("
 ");
 $stmt2->execute([$uid]);
 $perOutlet = $stmt2->fetchAll();
+
+// load today's submissions + receipts keyed by outlet
+$stmt3 = $pdo->prepare("
+  SELECT
+    s.id,
+    s.outlet_id,
+    s.date,
+    s.total_income,
+    s.total_expenses,
+    s.balance,
+    r.file_path,
+    r.original_name
+  FROM submissions s
+  LEFT JOIN receipts r ON r.submission_id = s.id
+  WHERE s.manager_id = ? AND s.date = CURDATE()
+  ORDER BY s.outlet_id, s.id, r.original_name
+");
+$stmt3->execute([$uid]);
+$todaySubs = [];
+while ($row = $stmt3->fetch(PDO::FETCH_ASSOC)) {
+    $oid = (int)$row['outlet_id'];
+    $sid = (int)$row['id'];
+
+    if (!isset($todaySubs[$oid][$sid])) {
+        $todaySubs[$oid][$sid] = [
+            'id'       => $sid,
+            'date'     => $row['date'],
+            'income'   => (float)$row['total_income'],
+            'expenses' => (float)$row['total_expenses'],
+            'balance'  => (float)$row['balance'],
+            'receipts' => [],
+        ];
+    }
+
+    if (!empty($row['file_path'])) {
+        $todaySubs[$oid][$sid]['receipts'][] = [
+            'path' => $row['file_path'],
+            'name' => $row['original_name'],
+        ];
+    }
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -72,6 +113,37 @@ $perOutlet = $stmt2->fetchAll();
           <div class="small text-muted">Sales</div><div>RM <?= number_format($r['inc'],2) ?></div>
           <div class="small text-muted mt-2">Expenses</div><div>RM <?= number_format($r['exp'],2) ?></div>
           <div class="small text-muted mt-2">Balance</div><div>RM <?= number_format($r['bal'],2) ?></div>
+          <?php $outletSubs = $todaySubs[(int)$r['id']] ?? []; ?>
+          <div class="mt-3 pt-3 border-top">
+            <div class="small text-uppercase text-muted fw-semibold mb-2">Today's Receipts</div>
+            <?php if ($outletSubs): ?>
+              <?php foreach ($outletSubs as $sub): ?>
+                <div class="mb-3">
+                  <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                      <div class="small fw-semibold">Submission <?= htmlspecialchars($sub['date']) ?></div>
+                      <div class="small text-muted">Sales RM <?= number_format($sub['income'],2) ?> · Expenses RM <?= number_format($sub['expenses'],2) ?></div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-primary" href="/daily_closing/manager_submission_view.php?id=<?= (int)$sub['id'] ?>">View details</a>
+                  </div>
+                  <?php if ($sub['receipts']): ?>
+                    <ul class="list-unstyled small mb-0 mt-2">
+                      <?php foreach ($sub['receipts'] as $rec): ?>
+                        <li class="d-flex align-items-center gap-2">
+                          <span class="text-muted">📎</span>
+                          <a href="<?= htmlspecialchars($rec['path']) ?>" target="_blank" rel="noopener"><?= htmlspecialchars($rec['name']) ?></a>
+                        </li>
+                      <?php endforeach; ?>
+                    </ul>
+                  <?php else: ?>
+                    <p class="text-muted small mb-0 mt-2">No receipts uploaded.</p>
+                  <?php endif; ?>
+                </div>
+              <?php endforeach; ?>
+            <?php else: ?>
+              <p class="text-muted small mb-0">No submissions yet today.</p>
+            <?php endif; ?>
+          </div>
         </div></div>
       </div>
     <?php endforeach; ?>
