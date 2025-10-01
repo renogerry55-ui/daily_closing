@@ -1,35 +1,376 @@
 <?php
 require __DIR__ . '/../../includes/auth_guard.php';
 require __DIR__ . '/../../includes/db.php';
-require __DIR__ . '/../../includes/metrics_manager.php';
 
 guard_manager();
 
 $managerId = current_manager_id();
-$range = $_GET['range'] ?? 'month';
-$metrics = manager_dashboard_metrics($pdo, $managerId, $range);
-$outlets = $metrics['outlets'];
-$totals = $metrics['totals'];
-$rangeKey = $metrics['range'];
+$outlets = allowed_outlets($pdo);
 
-$startLabel = DateTime::createFromFormat('Y-m-d', $metrics['start']);
-$endLabel = DateTime::createFromFormat('Y-m-d', $metrics['end']);
-$rangeLabel = $rangeKey === 'today' ? 'Today' : 'This Month';
-$rangeSubtitle = $rangeKey === 'today'
-    ? ($endLabel ? $endLabel->format('j M Y') : $metrics['end'])
-    : (($startLabel && $endLabel) ? $startLabel->format('j M Y') . ' – ' . $endLabel->format('j M Y') : $metrics['start'] . ' – ' . $metrics['end']);
+$sessionKey = 'manager_dashboard_filters_' . $managerId;
+$allowedTabs = ['submissions', 'hq', 'remittances'];
+$defaultFilters = [
+    'submissions'  => ['range' => 'week', 'status' => 'all', 'outlets' => [], 'date_from' => '', 'date_to' => ''],
+    'hq'           => ['range' => 'week', 'status' => 'all', 'outlets' => [], 'date_from' => '', 'date_to' => ''],
+    'remittances'  => ['range' => 'week', 'status' => 'all', 'outlets' => [], 'date_from' => '', 'date_to' => ''],
+];
 
-function manager_badge(string $label, int $count, float $amount, string $color): string
-{
-    $formattedAmount = number_format($amount, 2);
-    return sprintf(
-        '<span class="badge text-bg-%s rounded-pill">%s: %d (RM %s)</span>',
-        $color,
-        htmlspecialchars($label),
-        $count,
-        $formattedAmount
-    );
+if (!isset($_SESSION[$sessionKey])) {
+    $_SESSION[$sessionKey] = $defaultFilters + ['tab' => 'submissions'];
 }
+
+$tab = $_GET['tab'] ?? ($_SESSION[$sessionKey]['tab'] ?? 'submissions');
+if (!in_array($tab, $allowedTabs, true)) {
+    $tab = 'submissions';
+}
+$_SESSION[$sessionKey]['tab'] = $tab;
+
+$action = $_GET['action'] ?? '';
+
+$availableOutletIds = array_map(static fn(array $row) => (int)$row['id'], $outlets);
+$availableOutletIds = array_values(array_unique($availableOutletIds));
+
+$redirectToTab = static function (string $tab) {
+    $query = http_build_query(['tab' => $tab]);
+    header('Location: /daily_closing/views/manager/dashboard.php?' . $query);
+    exit;
+};
+
+$sanitizeOutlets = static function (array $raw, array $allowed): array {
+    $selected = [];
+    foreach ($raw as $value) {
+        $id = (int)$value;
+        if (in_array($id, $allowed, true)) {
+            $selected[] = $id;
+        }
+    }
+    return array_values(array_unique($selected));
+};
+
+$parseDate = static function (?string $value): ?string {
+    if (!$value) {
+        return null;
+    }
+    $value = trim($value);
+    if ($value === '') {
+        return null;
+    }
+    $dt = DateTimeImmutable::createFromFormat('Y-m-d', $value);
+    return $dt ? $dt->format('Y-m-d') : null;
+};
+
+$computeRange = static function (string $range, ?string $from, ?string $to): array {
+    $today = new DateTimeImmutable('today');
+    $end = $today;
+    $start = $today;
+
+    switch ($range) {
+        case 'today':
+            break;
+        case 'month':
+            $start = $today->modify('first day of this month');
+            break;
+        case 'custom':
+            if ($from && $to) {
+                $startDt = DateTimeImmutable::createFromFormat('Y-m-d', $from);
+                $endDt = DateTimeImmutable::createFromFormat('Y-m-d', $to);
+                if ($startDt && $endDt && $startDt <= $endDt) {
+                    $start = $startDt;
+                    $end = $endDt;
+                    break;
+                }
+            }
+            // fall through to default week if invalid custom
+        default:
+            $range = 'week';
+            $start = $today->modify('monday this week');
+            break;
+    }
+
+    if ($range === 'week') {
+        $start = $today->modify('monday this week');
+    }
+
+    return [$start->format('Y-m-d'), $end->format('Y-m-d'), $range];
+};
+
+if ($action === 'reset' && isset($_GET['tab']) && in_array($_GET['tab'], $allowedTabs, true)) {
+    $_SESSION[$sessionKey][$_GET['tab']] = $defaultFilters[$_GET['tab']];
+    $redirectToTab($_GET['tab']);
+}
+
+if ($action === 'apply' && isset($_GET['tab']) && in_array($_GET['tab'], $allowedTabs, true)) {
+    $range = $_GET['range'] ?? 'week';
+    $status = $_GET['status'] ?? 'all';
+    $rawOutlets = $_GET['outlets'] ?? [];
+    if (!is_array($rawOutlets)) {
+        $rawOutlets = [$rawOutlets];
+    }
+    $selectedOutlets = $sanitizeOutlets($rawOutlets, $availableOutletIds);
+    $dateFrom = $parseDate($_GET['date_from'] ?? '');
+    $dateTo = $parseDate($_GET['date_to'] ?? '');
+
+    $_SESSION[$sessionKey][$_GET['tab']] = [
+        'range' => in_array($range, ['today', 'week', 'month', 'custom'], true) ? $range : 'week',
+        'status' => $status ?: 'all',
+        'outlets' => $selectedOutlets,
+        'date_from' => $dateFrom ?? '',
+        'date_to' => $dateTo ?? '',
+    ];
+
+    $redirectToTab($_GET['tab']);
+}
+
+$currentFilters = $_SESSION[$sessionKey][$tab] ?? $defaultFilters[$tab];
+[$dateStart, $dateEnd, $normalizedRange] = $computeRange(
+    $currentFilters['range'] ?? 'week',
+    $currentFilters['date_from'] ?: null,
+    $currentFilters['date_to'] ?: null
+);
+$currentFilters['range'] = $normalizedRange;
+$dateStartParam = $dateStart;
+$dateEndParam = $dateEnd;
+
+$selectedOutletIds = $currentFilters['outlets'];
+if (!$selectedOutletIds) {
+    $selectedOutletIds = $availableOutletIds;
+}
+
+$outletLookup = [];
+foreach ($outlets as $outlet) {
+    $outletLookup[(int)$outlet['id']] = $outlet['name'];
+}
+
+$selectedOutletNames = [];
+foreach ($selectedOutletIds as $outletId) {
+    if (isset($outletLookup[$outletId])) {
+        $selectedOutletNames[] = $outletLookup[$outletId];
+    }
+}
+
+$selectedOutletSummary = 'All outlets';
+if ($selectedOutletNames && count($selectedOutletIds) !== count($availableOutletIds)) {
+    if (count($selectedOutletNames) <= 2) {
+        $selectedOutletSummary = implode(', ', $selectedOutletNames);
+    } else {
+        $selectedOutletSummary = count($selectedOutletNames) . ' outlets selected';
+    }
+}
+
+$buildPlaceholders = static function (array $ids): string {
+    return implode(',', array_fill(0, count($ids), '?'));
+};
+
+$metrics = [
+    'sales_approved' => 0.0,
+    'expenses_approved' => 0.0,
+    'cash_on_hand' => 0.0,
+    'last_remittance' => null,
+];
+
+if ($availableOutletIds) {
+    $today = (new DateTimeImmutable('today'))->format('Y-m-d');
+
+    $placeholders = $buildPlaceholders($availableOutletIds);
+
+    $sqlApproved = "SELECT IFNULL(SUM(total_income),0) AS total_income, IFNULL(SUM(total_expenses),0) AS total_expenses FROM submissions WHERE status = 'approved' AND manager_id = ? AND outlet_id IN ($placeholders)";
+    $stmt = $pdo->prepare($sqlApproved);
+    $stmt->execute(array_merge([$managerId], $availableOutletIds));
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['total_income' => 0, 'total_expenses' => 0];
+    $metrics['sales_approved'] = (float)$row['total_income'];
+    $metrics['expenses_approved'] = (float)$row['total_expenses'];
+    $approvedNet = max(0.0, $metrics['sales_approved'] - $metrics['expenses_approved']);
+
+    $sqlRemit = "SELECT IFNULL(SUM(amount),0) FROM hq_remittances WHERE status = 'approved' AND outlet_id IN ($placeholders)";
+    $stmt = $pdo->prepare($sqlRemit);
+    $stmt->execute($availableOutletIds);
+    $approvedRemit = (float)$stmt->fetchColumn();
+
+    $metrics['cash_on_hand'] = max(0, $approvedNet - $approvedRemit);
+
+    $sqlLast = "SELECT received_at, amount, status FROM hq_remittances WHERE outlet_id IN ($placeholders) ORDER BY received_at DESC, id DESC LIMIT 1";
+    $stmt = $pdo->prepare($sqlLast);
+    $stmt->execute($availableOutletIds);
+    $metrics['last_remittance'] = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+$submissions = [];
+$hqBatches = [];
+$remittances = [];
+
+if ($availableOutletIds) {
+    $placeholdersSelected = $buildPlaceholders($selectedOutletIds);
+
+    if ($tab === 'submissions') {
+        $params = [$managerId, $dateStartParam, $dateEndParam];
+        $where = "WHERE s.manager_id = ? AND s.date BETWEEN ? AND ?";
+        if ($selectedOutletIds && count($selectedOutletIds) !== count($availableOutletIds)) {
+            $where .= " AND s.outlet_id IN ($placeholdersSelected)";
+            $params = array_merge($params, $selectedOutletIds);
+        }
+        $status = $currentFilters['status'] ?? 'all';
+        if ($status !== 'all') {
+            $where .= ' AND s.status = ?';
+            $params[] = $status;
+        }
+
+        $sql = "
+            SELECT
+                s.id,
+                s.date,
+                s.status,
+                s.total_income,
+                s.total_expenses,
+                s.total_income - s.total_expenses AS balance,
+                o.name AS outlet_name,
+                COUNT(i.id) AS item_count
+            FROM submissions s
+            JOIN outlets o ON o.id = s.outlet_id
+            LEFT JOIN submission_items i ON i.submission_id = s.id
+            $where
+            GROUP BY s.id, s.date, s.status, s.total_income, s.total_expenses, o.name
+            ORDER BY s.date DESC, s.id DESC
+            LIMIT 20
+        ";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $submissions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    if ($tab === 'hq') {
+        $params = [$managerId, $dateStartParam, $dateEndParam];
+        $where = "WHERE b.manager_id = ? AND b.report_date BETWEEN ? AND ?";
+        $extraParams = [];
+        if ($selectedOutletIds && count($selectedOutletIds) !== count($availableOutletIds)) {
+            $place = $buildPlaceholders($selectedOutletIds);
+            $where .= " AND EXISTS (
+                SELECT 1 FROM hq_batch_submissions bs
+                JOIN submissions s2 ON s2.id = bs.submission_id
+                WHERE bs.hq_batch_id = b.id AND s2.outlet_id IN ($place)
+            )";
+            $extraParams = array_merge($extraParams, $selectedOutletIds);
+        }
+        $status = $currentFilters['status'] ?? 'all';
+        if ($status !== 'all') {
+            $where .= ' AND b.status = ?';
+            $extraParams[] = $status;
+        }
+
+        $sql = "
+            SELECT
+                b.id,
+                b.report_date,
+                b.status,
+                b.overall_total_income,
+                b.overall_total_expenses,
+                b.overall_balance,
+                COALESCE(COUNT(DISTINCT s.outlet_id), 0) AS outlet_count,
+                COALESCE(COUNT(bs.submission_id), 0) AS submission_count
+            FROM hq_batches b
+            LEFT JOIN hq_batch_submissions bs ON bs.hq_batch_id = b.id
+            LEFT JOIN submissions s ON s.id = bs.submission_id
+            $where
+            GROUP BY b.id, b.report_date, b.status, b.overall_total_income, b.overall_total_expenses, b.overall_balance
+            ORDER BY b.report_date DESC, b.id DESC
+            LIMIT 20
+        ";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute(array_merge($params, $extraParams));
+        $hqBatches = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    if ($tab === 'remittances') {
+        $where = [];
+        $params = [];
+        $placeAll = $buildPlaceholders($availableOutletIds);
+        $where[] = "r.outlet_id IN ($placeAll)";
+        $params = array_merge($params, $availableOutletIds);
+        $where[] = 'r.received_at BETWEEN ? AND ?';
+        $params[] = $dateStartParam;
+        $params[] = $dateEndParam;
+        if ($selectedOutletIds && count($selectedOutletIds) !== count($availableOutletIds)) {
+            $where[] = "r.outlet_id IN ($placeholdersSelected)";
+            $params = array_merge($params, $selectedOutletIds);
+        }
+        $status = $currentFilters['status'] ?? 'all';
+        if ($status !== 'all') {
+            $where[] = 'r.status = ?';
+            $params[] = $status;
+        }
+
+        $sql = "
+            SELECT
+                r.id,
+                r.outlet_id,
+                r.submission_id,
+                r.amount,
+                r.received_at,
+                r.status,
+                r.bank_ref,
+                o.name AS outlet_name
+            FROM hq_remittances r
+            JOIN outlets o ON o.id = r.outlet_id
+            WHERE " . implode(' AND ', $where) . "
+            ORDER BY r.received_at DESC, r.id DESC
+            LIMIT 20
+        ";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $remittances = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+}
+
+$statusOptions = [
+    'submissions' => [
+        'all' => 'All statuses',
+        'submitted' => 'Submitted',
+        'approved' => 'Approved',
+        'rejected' => 'Rejected',
+        'recorded' => 'Recorded',
+    ],
+    'hq' => [
+        'all' => 'All statuses',
+        'submitted' => 'Submitted',
+        'processing' => 'Processing',
+        'acknowledged' => 'Acknowledged',
+        'rejected' => 'Rejected',
+        'completed' => 'Completed',
+    ],
+    'remittances' => [
+        'all' => 'All statuses',
+        'pending' => 'Pending',
+        'approved' => 'Approved',
+        'declined' => 'Declined',
+    ],
+];
+
+$rangeOptions = [
+    'today' => 'Today',
+    'week' => 'This week',
+    'month' => 'This month',
+    'custom' => 'Custom range',
+];
+
+function format_money(float $value): string
+{
+    return number_format($value, 2);
+}
+
+function status_badge_class(string $status): string
+{
+    return match ($status) {
+        'submitted', 'pending' => 'warning',
+        'approved', 'completed', 'acknowledged' => 'success',
+        'rejected', 'declined' => 'danger',
+        'processing' => 'info',
+        'recorded' => 'secondary',
+        default => 'secondary',
+    };
+}
+
 ?>
 <!doctype html>
 <html lang="en">
@@ -39,185 +380,391 @@ function manager_badge(string $label, int $count, float $amount, string $color):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-  .kpi-card { min-height: 120px; }
-  .badge + .badge { margin-left: .5rem; }
-  .outlet-card { border-radius: 1rem; }
-  .chip { display: inline-flex; align-items: center; gap: .25rem; padding: .35rem .65rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
-  .chip-warning { background-color: #fff3cd; color: #856404; }
-  .chip-info { background-color: #e7f1ff; color: #084298; }
+  body { background: #f5f6f8; }
+  .dashboard-header { position: sticky; top: 0; z-index: 1020; background: #f5f6f8; padding-top: 1rem; }
+  .filters-bar { position: sticky; top: 112px; z-index: 1010; background: #ffffff; }
+  @media (max-width: 991.98px) {
+    .filters-bar { top: 164px; }
+  }
+  .card-metric { border: none; border-radius: 1rem; box-shadow: 0 6px 24px rgba(15, 23, 42, .08); }
+  .card-metric h6 { text-transform: uppercase; font-size: .75rem; letter-spacing: .08em; margin-bottom: .5rem; color: #64748b; }
+  .tab-content .table { font-size: .875rem; }
+  .status-pill { display: inline-flex; align-items: center; justify-content: center; padding: .35rem .75rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+  .legend-dot { width: .75rem; height: .75rem; border-radius: 50%; display: inline-block; margin-right: .35rem; }
+  .legend-item { font-size: .75rem; color: #64748b; }
+  .table thead th { text-transform: uppercase; font-size: .7rem; letter-spacing: .05em; color: #94a3b8; border-bottom: 2px solid #e2e8f0; }
+  .table tbody td { vertical-align: middle; }
+  .filters-card { border-radius: 1rem; box-shadow: 0 4px 16px rgba(15, 23, 42, .06); }
+  .filters-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem 1rem; }
+  .filters-toolbar .filter-field { min-width: 140px; flex: 1 1 160px; }
+  .filters-toolbar .filter-actions { margin-left: auto; display: flex; gap: .5rem; flex-wrap: wrap; }
+  @media (max-width: 575.98px) {
+    .filters-toolbar .filter-actions { width: 100%; justify-content: flex-end; }
+  }
+  .outlet-selector-button { padding: .55rem .75rem; border-radius: .75rem; }
+  .outlet-selector-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dropdown-menu.outlet-selector-menu { min-width: 16rem; max-height: 16rem; overflow: auto; }
+  .dropdown-menu.outlet-selector-menu .form-check { padding-left: 1.75rem; }
 </style>
 </head>
-<body class="bg-light">
-<nav class="navbar navbar-expand-lg bg-white border-bottom">
+<body>
+<nav class="navbar navbar-expand-lg bg-white shadow-sm">
   <div class="container">
-    <a class="navbar-brand" href="#">Daily Closing</a>
-    <div class="ms-auto d-flex gap-2">
-      <a class="btn btn-outline-secondary btn-sm" href="/daily_closing/manager_submissions.php">📄 My Submissions</a>
+    <a class="navbar-brand fw-semibold" href="#">Daily Closing</a>
+    <div class="ms-auto d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary btn-sm" href="/daily_closing/manager_submissions.php">My Submissions</a>
+      <a class="btn btn-outline-secondary btn-sm" href="/daily_closing/manager_hq_batches.php">HQ History</a>
       <a class="btn btn-outline-danger btn-sm" href="/daily_closing/logout.php">Logout</a>
     </div>
   </div>
 </nav>
 
 <main class="container py-4">
-  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
-    <div>
-      <h2 class="mb-1">Manager Dashboard</h2>
-      <div class="text-muted"><?= htmlspecialchars($rangeLabel) ?> · <?= htmlspecialchars($rangeSubtitle) ?></div>
+  <div class="dashboard-header">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+      <div>
+        <h1 class="h3 mb-2">Manager Dashboard</h1>
+        <p class="text-muted mb-0">One place to track submissions, batches, and remittances.</p>
+      </div>
+      <div class="nav nav-pills gap-2" role="tablist">
+        <a class="btn btn-sm <?= $tab === 'submissions' ? 'btn-primary' : 'btn-outline-primary' ?>" href="?tab=submissions">Submissions</a>
+        <a class="btn btn-sm <?= $tab === 'hq' ? 'btn-primary' : 'btn-outline-primary' ?>" href="?tab=hq">HQ Batches</a>
+        <a class="btn btn-sm <?= $tab === 'remittances' ? 'btn-primary' : 'btn-outline-primary' ?>" href="?tab=remittances">Cash &amp; Remittances</a>
+      </div>
     </div>
-    <div class="btn-group" role="group" aria-label="Period toggle">
-      <a class="btn btn-sm <?= $rangeKey === 'month' ? 'btn-primary' : 'btn-outline-primary' ?>" href="?range=month">This Month</a>
-      <a class="btn btn-sm <?= $rangeKey === 'today' ? 'btn-primary' : 'btn-outline-primary' ?>" href="?range=today">Today</a>
+
+    <div class="row g-3 mb-4">
+      <div class="col-sm-6 col-lg-3">
+        <div class="card card-metric h-100">
+          <div class="card-body">
+            <h6>Sales Approved</h6>
+            <div class="display-6 fw-semibold">RM <?= format_money($metrics['sales_approved']) ?></div>
+            <small class="text-muted">Approved sales total</small>
+          </div>
+        </div>
+      </div>
+      <div class="col-sm-6 col-lg-3">
+        <div class="card card-metric h-100">
+          <div class="card-body">
+            <h6>Expenses Approved</h6>
+            <div class="display-6 fw-semibold">RM <?= format_money($metrics['expenses_approved']) ?></div>
+            <small class="text-muted">Approved expense total</small>
+          </div>
+        </div>
+      </div>
+      <div class="col-sm-6 col-lg-3">
+        <div class="card card-metric h-100">
+          <div class="card-body">
+            <h6>Cash on Hand</h6>
+            <div class="display-6 fw-semibold">RM <?= format_money($metrics['cash_on_hand']) ?></div>
+            <small class="text-muted">Approved net - approved remittances</small>
+          </div>
+        </div>
+      </div>
+      <div class="col-sm-6 col-lg-3">
+        <div class="card card-metric h-100">
+          <div class="card-body">
+            <h6>Last Remittance</h6>
+            <?php if ($metrics['last_remittance']): ?>
+              <div class="fw-semibold mb-1">RM <?= format_money((float)$metrics['last_remittance']['amount']) ?></div>
+              <div class="text-muted small"><?= htmlspecialchars($metrics['last_remittance']['received_at']) ?> ·
+                <span class="badge text-bg-<?= status_badge_class((string)$metrics['last_remittance']['status']) ?>"><?= htmlspecialchars(ucfirst($metrics['last_remittance']['status'])) ?></span>
+              </div>
+            <?php else: ?>
+              <div class="fw-semibold mb-1">No remittances</div>
+              <div class="text-muted small">Record your first HQ deposit</div>
+            <?php endif; ?>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <?php if ($metrics['outletCount'] === 0): ?>
-    <div class="alert alert-info">
-      <h5 class="alert-heading">No outlets assigned</h5>
-      <p class="mb-0">You currently do not have any active outlets assigned. Please contact the administrator to request an assignment.</p>
-    </div>
-  <?php else: ?>
-    <section class="mb-5">
-      <h5 class="text-uppercase text-muted mb-3">All Outlets — <?= htmlspecialchars($rangeLabel) ?></h5>
-      <div class="row g-3 mb-2">
-        <div class="col-md-4">
-          <div class="card kpi-card shadow-sm border-0">
-            <div class="card-body">
-              <div class="text-muted small">Sales (Approved, <?= htmlspecialchars($rangeLabel) ?>)</div>
-              <div class="display-6 fs-2">RM <?= number_format($totals['salesApproved'], 2) ?></div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <div class="card kpi-card shadow-sm border-0">
-            <div class="card-body">
-              <div class="text-muted small">Expenses (Approved, <?= htmlspecialchars($rangeLabel) ?>)</div>
-              <div class="display-6 fs-2">RM <?= number_format($totals['expensesApproved'], 2) ?></div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <div class="card kpi-card shadow-sm border-0">
-            <div class="card-body">
-              <div class="text-muted small">Cash on Hand (Approved, <?= htmlspecialchars($rangeLabel) ?>)</div>
-              <div class="display-6 fs-2">RM <?= number_format($totals['coh'], 2) ?></div>
-              <div class="text-muted small mt-2">Remitted (Approved, <?= htmlspecialchars($rangeLabel) ?>): RM <?= number_format($totals['remittedApproved'], 2) ?></div>
-            </div>
-          </div>
-        </div>
+  <section class="filters-bar mb-4 border rounded-4 p-3 bg-white">
+    <form class="filters-toolbar w-100" method="get">
+      <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
+      <input type="hidden" name="action" value="apply">
+
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
+        <label class="form-label small text-uppercase text-muted">Date range</label>
+        <select class="form-select form-select-sm" name="range">
+          <?php foreach ($rangeOptions as $value => $label): ?>
+            <option value="<?= $value ?>" <?= ($currentFilters['range'] ?? 'week') === $value ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+          <?php endforeach; ?>
+        </select>
       </div>
-      <div class="d-flex flex-wrap gap-2">
-        <?= manager_badge('Pending submissions', (int)$totals['pendingSubmissionsCount'], (float)$totals['pendingSubmissionsAmount'], 'warning') ?>
-        <?= manager_badge('Pending remittances', (int)$totals['pendingRemittancesCount'], (float)$totals['pendingRemittancesAmount'], 'info') ?>
-      </div>
-    </section>
 
-    <section>
-      <h5 class="text-uppercase text-muted mb-3">Per Outlet — <?= htmlspecialchars($rangeLabel) ?></h5>
-      <div class="row g-4">
-        <?php foreach ($outlets as $outlet):
-          $oid = (int)$outlet['id'];
-          $data = $metrics['outlets'][$oid];
-          $pendingSubLabel = $data['pendingSubmissionsAmount'] >= 0 ? 'RM ' . number_format($data['pendingSubmissionsAmount'], 2) : 'RM ' . number_format($data['pendingSubmissionsAmount'], 2);
-          $pendingRemitLabel = 'RM ' . number_format($data['pendingRemittancesAmount'], 2);
-        ?>
-        <div class="col-lg-4">
-          <div class="card outlet-card shadow-sm border-0 h-100">
-            <div class="card-body d-flex flex-column">
-              <div class="d-flex align-items-start justify-content-between mb-3">
-                <h5 class="mb-0"><?= htmlspecialchars($outlet['name']) ?></h5>
-              </div>
-              <div class="mb-3">
-                <div class="small text-muted">Sales (Approved)</div>
-                <div class="fw-semibold">RM <?= number_format($data['salesApproved'], 2) ?></div>
-                <div class="small text-muted mt-2">Expenses (Approved)</div>
-                <div class="fw-semibold">RM <?= number_format($data['expensesApproved'], 2) ?></div>
-                <div class="small text-muted mt-2">Approved Remitted</div>
-                <div class="fw-semibold">RM <?= number_format($data['remittedApproved'], 2) ?></div>
-                <div class="small text-muted mt-2">Cash on Hand (Approved)</div>
-                <div class="fw-semibold text-success">RM <?= number_format($data['cashOnHand'], 2) ?></div>
-              </div>
-              <div class="mb-3 d-flex flex-column gap-2">
-                <span class="chip chip-warning">Pending submissions: <?= (int)$data['pendingSubmissionsCount'] ?> (<?= $pendingSubLabel ?>)</span>
-                <span class="chip chip-info">Pending remittances: <?= (int)$data['pendingRemittancesCount'] ?> (<?= $pendingRemitLabel ?>)</span>
-              </div>
-
-              <div class="mb-4">
-                <div class="small text-uppercase text-muted fw-semibold mb-2">Latest Submissions</div>
-                <?php if ($data['latestSubmissions']): ?>
-                  <ul class="list-unstyled mb-0">
-                    <?php foreach ($data['latestSubmissions'] as $submission):
-                      $status = strtolower((string)$submission['status']);
-                      $badgeMap = [
-                        'approved' => 'success',
-                        'pending' => 'warning',
-                        'rejected' => 'danger',
-                        'declined' => 'danger',
-                        'recorded' => 'info',
-                      ];
-                      $badgeColor = $badgeMap[$status] ?? 'secondary';
-                    ?>
-                      <li class="mb-2">
-                        <div class="d-flex justify-content-between gap-2">
-                          <div>
-                            <div class="fw-semibold small"><?= htmlspecialchars($submission['date']) ?></div>
-                            <div class="small text-muted">Sales RM <?= number_format((float)$submission['total_income'], 2) ?> · Expenses RM <?= number_format((float)$submission['total_expenses'], 2) ?></div>
-                          </div>
-                          <span class="badge text-bg-<?= $badgeColor ?> align-self-start"><?= htmlspecialchars(ucfirst($status)) ?></span>
-                        </div>
-                        <a class="small" href="/daily_closing/manager_submission_view.php?id=<?= (int)$submission['id'] ?>">View details</a>
-                      </li>
-                    <?php endforeach; ?>
-                  </ul>
-                <?php else: ?>
-                  <p class="text-muted small mb-0">No submissions yet.</p>
-                <?php endif; ?>
-              </div>
-
-              <div class="mb-4">
-                <div class="small text-uppercase text-muted fw-semibold mb-2">Today's Receipts</div>
-                <?php if ($data['todayReceipts']): ?>
-                  <?php foreach ($data['todayReceipts'] as $sub): ?>
-                    <div class="mb-3">
-                      <div class="d-flex justify-content-between align-items-start gap-2">
-                        <div>
-                          <div class="small fw-semibold">Submission <?= htmlspecialchars($sub['date']) ?></div>
-                          <div class="small text-muted">Sales RM <?= number_format($sub['income'], 2) ?> · Expenses RM <?= number_format($sub['expenses'], 2) ?></div>
-                        </div>
-                        <a class="btn btn-sm btn-outline-primary" href="/daily_closing/manager_submission_view.php?id=<?= (int)$sub['id'] ?>">View details</a>
-                      </div>
-                      <?php if ($sub['receipts']): ?>
-                        <ul class="list-unstyled small mb-0 mt-2">
-                          <?php foreach ($sub['receipts'] as $rec): ?>
-                            <li class="d-flex align-items-center gap-2">
-                              <span class="text-muted">📎</span>
-                              <a href="<?= htmlspecialchars($rec['path']) ?>" target="_blank" rel="noopener"><?= htmlspecialchars($rec['name']) ?></a>
-                            </li>
-                          <?php endforeach; ?>
-                        </ul>
-                      <?php else: ?>
-                        <p class="text-muted small mb-0 mt-2">No receipts uploaded.</p>
-                      <?php endif; ?>
-                    </div>
-                  <?php endforeach; ?>
-                <?php else: ?>
-                  <p class="text-muted small mb-0">No submissions today.</p>
-                <?php endif; ?>
-              </div>
-
-              <div class="mt-auto pt-3 border-top">
-                <div class="d-flex flex-wrap gap-2">
-                  <a class="btn btn-sm btn-primary" href="/daily_closing/views/manager_submission_create.php?outlet_id=<?= $oid ?>">➕ Sales / Expenses</a>
-                  <a class="btn btn-sm btn-outline-primary" href="/daily_closing/views/report_hq.php">Upload deposit slip</a>
-                  <a class="btn btn-sm btn-outline-secondary" href="/daily_closing/manager_hq_batches.php">HQ History</a>
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
+        <label class="form-label small text-uppercase text-muted">Outlets</label>
+        <div class="dropdown w-100" data-bs-auto-close="outside" data-filter-outlets data-outlet-count="<?= count($availableOutletIds) ?>">
+          <button class="btn btn-outline-secondary w-100 d-flex align-items-center justify-content-between outlet-selector-button" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <span id="outletSelectorLabel" class="me-2 flex-grow-1 text-start text-truncate small fw-semibold"><?= htmlspecialchars($selectedOutletSummary) ?></span>
+            <span class="text-muted small">▾</span>
+          </button>
+          <div class="dropdown-menu outlet-selector-menu w-100 shadow-sm p-3">
+            <?php if ($outlets): ?>
+              <?php foreach ($outlets as $outlet): ?>
+                <?php $outletId = (int)$outlet['id']; ?>
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" name="outlets[]" value="<?= $outletId ?>" id="filter-outlet-<?= $outletId ?>" data-label="<?= htmlspecialchars($outlet['name']) ?>" <?= in_array($outletId, $selectedOutletIds, true) ? 'checked' : '' ?>>
+                  <label class="form-check-label" for="filter-outlet-<?= $outletId ?>"><?= htmlspecialchars($outlet['name']) ?></label>
                 </div>
+              <?php endforeach; ?>
+              <div class="d-flex align-items-center gap-2 pt-1 border-top mt-2 pt-2">
+                <button type="button" class="btn btn-link btn-sm px-0" data-action="select-all">Select all</button>
+                <span class="text-muted">·</span>
+                <button type="button" class="btn btn-link btn-sm px-0" data-action="clear">Clear</button>
               </div>
-            </div>
+            <?php else: ?>
+              <span class="text-muted small">No outlets assigned yet.</span>
+            <?php endif; ?>
           </div>
         </div>
-        <?php endforeach; ?>
       </div>
-    </section>
-  <?php endif; ?>
+
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
+        <label class="form-label small text-uppercase text-muted">Status</label>
+        <select class="form-select form-select-sm" name="status">
+          <?php foreach ($statusOptions[$tab] as $value => $label): ?>
+            <option value="<?= htmlspecialchars($value) ?>" <?= ($currentFilters['status'] ?? 'all') === $value ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
+        <label class="form-label small text-uppercase text-muted">From</label>
+        <input type="date" class="form-control form-control-sm" name="date_from" value="<?= htmlspecialchars($currentFilters['date_from'] ?? '') ?>">
+      </div>
+
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
+        <label class="form-label small text-uppercase text-muted">To</label>
+        <input type="date" class="form-control form-control-sm" name="date_to" value="<?= htmlspecialchars($currentFilters['date_to'] ?? '') ?>">
+      </div>
+
+      <div class="filter-actions">
+        <button type="submit" class="btn btn-primary btn-sm px-3">Apply</button>
+        <a class="btn btn-outline-secondary btn-sm px-3" href="?tab=<?= htmlspecialchars($tab) ?>&amp;action=reset">Reset</a>
+      </div>
+    </form>
+  </section>
+
+  <div class="tab-content">
+    <div class="tab-pane fade <?= $tab === 'submissions' ? 'show active' : '' ?>" id="tab-submissions" role="tabpanel">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h2 class="h5 mb-0">Recent Submissions</h2>
+        <a class="btn btn-primary" href="/daily_closing/views/manager_submission_create.php">New Submission</a>
+      </div>
+      <?php if (!$availableOutletIds): ?>
+        <div class="alert alert-info">No outlets assigned yet. Contact HQ to get started.</div>
+      <?php elseif (!$submissions): ?>
+        <div class="card border-0 shadow-sm">
+          <div class="card-body text-center py-5">
+            <h5 class="mb-2">No submissions found</h5>
+            <p class="text-muted">Try a wider date range or create a new submission.</p>
+            <a class="btn btn-primary" href="/daily_closing/views/manager_submission_create.php">Create Submission</a>
+          </div>
+        </div>
+      <?php else: ?>
+        <div class="table-responsive rounded-4 shadow-sm">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Date</th>
+                <th>Outlet</th>
+                <th>Items</th>
+                <th class="text-end">Net (RM)</th>
+                <th>Status</th>
+                <th class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($submissions as $submission): ?>
+                <tr>
+                  <td>#<?= (int)$submission['id'] ?></td>
+                  <td><?= htmlspecialchars($submission['date']) ?></td>
+                  <td><?= htmlspecialchars($submission['outlet_name']) ?></td>
+                  <td><?= (int)$submission['item_count'] ?></td>
+                  <td class="text-end"><?= format_money((float)$submission['balance']) ?></td>
+                  <td>
+                    <?php $status = (string)$submission['status']; ?>
+                    <span class="badge text-bg-<?= status_badge_class($status) ?> status-pill"><?= htmlspecialchars(ucfirst($status)) ?></span>
+                  </td>
+                  <td class="text-end">
+                    <div class="btn-group btn-group-sm">
+                      <a class="btn btn-outline-secondary" href="/daily_closing/manager_submission_view.php?id=<?= (int)$submission['id'] ?>">View</a>
+                      <a class="btn btn-outline-secondary" href="/daily_closing/views/report_hq.php?submission_id=<?= (int)$submission['id'] ?>">Submit</a>
+                    </div>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex flex-wrap gap-3 mt-3">
+          <span class="legend-item"><span class="legend-dot bg-warning"></span> Submitted / Pending</span>
+          <span class="legend-item"><span class="legend-dot bg-success"></span> Approved / Completed</span>
+          <span class="legend-item"><span class="legend-dot bg-danger"></span> Rejected / Declined</span>
+          <span class="legend-item"><span class="legend-dot bg-info"></span> Processing</span>
+        </div>
+      <?php endif; ?>
+    </div>
+
+    <div class="tab-pane fade <?= $tab === 'hq' ? 'show active' : '' ?>" id="tab-hq" role="tabpanel">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h2 class="h5 mb-0">HQ Batches</h2>
+        <a class="btn btn-primary" href="/daily_closing/views/report_hq.php">New HQ Batch</a>
+      </div>
+      <?php if (!$availableOutletIds): ?>
+        <div class="alert alert-info">No outlets assigned yet. Contact HQ to get started.</div>
+      <?php elseif (!$hqBatches): ?>
+        <div class="card border-0 shadow-sm">
+          <div class="card-body text-center py-5">
+            <h5 class="mb-2">No batches yet</h5>
+            <p class="text-muted">Submit a package to HQ to see it listed here.</p>
+            <a class="btn btn-primary" href="/daily_closing/views/report_hq.php">Create HQ Batch</a>
+          </div>
+        </div>
+      <?php else: ?>
+        <div class="table-responsive rounded-4 shadow-sm">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Batch</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Outlets</th>
+                <th>Submissions</th>
+                <th class="text-end">Balance (RM)</th>
+                <th class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($hqBatches as $batch): ?>
+                <tr>
+                  <td>#<?= (int)$batch['id'] ?></td>
+                  <td><?= htmlspecialchars($batch['report_date']) ?></td>
+                  <td><span class="badge text-bg-<?= status_badge_class((string)$batch['status']) ?> status-pill"><?= htmlspecialchars(ucfirst((string)$batch['status'])) ?></span></td>
+                  <td><?= (int)$batch['outlet_count'] ?></td>
+                  <td><?= (int)$batch['submission_count'] ?></td>
+                  <td class="text-end"><?= format_money((float)$batch['overall_balance']) ?></td>
+                  <td class="text-end">
+                    <div class="btn-group btn-group-sm">
+                      <a class="btn btn-outline-secondary" href="/daily_closing/manager_hq_batch_view.php?id=<?= (int)$batch['id'] ?>">View</a>
+                      <a class="btn btn-outline-secondary" href="/daily_closing/account_hq_package_export.php?id=<?= (int)$batch['id'] ?>">Export</a>
+                    </div>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
+    </div>
+
+    <div class="tab-pane fade <?= $tab === 'remittances' ? 'show active' : '' ?>" id="tab-remittances" role="tabpanel">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h2 class="h5 mb-0">Cash &amp; Remittances</h2>
+        <a class="btn btn-primary" href="/daily_closing/views/report_hq.php">Record Pass to Office</a>
+      </div>
+      <?php if (!$availableOutletIds): ?>
+        <div class="alert alert-info">No outlets assigned yet. Contact HQ to get started.</div>
+      <?php elseif (!$remittances): ?>
+        <div class="card border-0 shadow-sm">
+          <div class="card-body text-center py-5">
+            <h5 class="mb-2">No remittances recorded</h5>
+            <p class="text-muted">Submit a cash pass or bank-in slip to view it here.</p>
+            <a class="btn btn-primary" href="/daily_closing/views/report_hq.php">Record Remittance</a>
+          </div>
+        </div>
+      <?php else: ?>
+        <div class="table-responsive rounded-4 shadow-sm">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Date</th>
+                <th>Outlet</th>
+                <th>Type</th>
+                <th class="text-end">Amount (RM)</th>
+                <th>Status</th>
+                <th class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($remittances as $remit): ?>
+                <?php
+                  $type = !empty($remit['bank_ref']) ? 'Bank In' : 'Pass to Office';
+                  $status = (string)$remit['status'];
+                ?>
+                <tr>
+                  <td>#<?= (int)$remit['id'] ?></td>
+                  <td><?= htmlspecialchars($remit['received_at']) ?></td>
+                  <td><?= htmlspecialchars($remit['outlet_name']) ?></td>
+                  <td><?= htmlspecialchars($type) ?></td>
+                  <td class="text-end"><?= format_money((float)$remit['amount']) ?></td>
+                  <td><span class="badge text-bg-<?= status_badge_class($status) ?> status-pill"><?= htmlspecialchars(ucfirst($status)) ?></span></td>
+                  <td class="text-end">
+                    <div class="btn-group btn-group-sm">
+                      <?php if (!empty($remit['submission_id'])): ?>
+                        <a class="btn btn-outline-secondary" href="/daily_closing/manager_submission_view.php?id=<?= (int)$remit['submission_id'] ?>">Submission</a>
+                      <?php endif; ?>
+                      <a class="btn btn-outline-secondary" href="/daily_closing/views/report_hq.php">Details</a>
+                    </div>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
+    </div>
+  </div>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const outletDropdown = document.querySelector('[data-filter-outlets]');
+    if (!outletDropdown) {
+      return;
+    }
+
+    const outletCount = parseInt(outletDropdown.getAttribute('data-outlet-count'), 10) || 0;
+    const summaryEl = outletDropdown.querySelector('#outletSelectorLabel');
+    const checkboxes = Array.from(outletDropdown.querySelectorAll('input[type="checkbox"][name="outlets[]"]'));
+
+    const updateSummary = () => {
+      const selected = checkboxes.filter(cb => cb.checked);
+      let label = 'All outlets';
+      if (selected.length && selected.length !== outletCount) {
+        const names = selected.map(cb => cb.getAttribute('data-label'));
+        if (names.length <= 2) {
+          label = names.join(', ');
+        } else {
+          label = `${names.length} outlets selected`;
+        }
+      }
+      summaryEl.textContent = label || 'All outlets';
+    };
+
+    checkboxes.forEach(cb => cb.addEventListener('change', updateSummary));
+
+    outletDropdown.querySelectorAll('[data-action="select-all"]').forEach(button => {
+      button.addEventListener('click', function () {
+        checkboxes.forEach(cb => { cb.checked = true; });
+        updateSummary();
+      });
+    });
+
+    outletDropdown.querySelectorAll('[data-action="clear"]').forEach(button => {
+      button.addEventListener('click', function () {
+        checkboxes.forEach(cb => { cb.checked = false; });
+        updateSummary();
+      });
+    });
+
+    updateSummary();
+  });
+</script>
 </body>
 </html>
