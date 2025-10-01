@@ -1,94 +1,34 @@
 <?php
 require __DIR__ . '/../../includes/auth_guard.php';
 require __DIR__ . '/../../includes/db.php';
+require __DIR__ . '/../../includes/metrics_manager.php';
+
 guard_manager();
 
-$uid = current_manager_id();
-$phpToday = (new DateTimeImmutable('today'))->format('Y-m-d');
-$stmtToday = $pdo->query("SELECT CURDATE() AS today");
-$today = $stmtToday->fetchColumn() ?: $phpToday;
+$managerId = current_manager_id();
+$range = $_GET['range'] ?? 'month';
+$metrics = manager_dashboard_metrics($pdo, $managerId, $range);
+$outlets = $metrics['outlets'];
+$totals = $metrics['totals'];
+$rangeKey = $metrics['range'];
 
-if ($today !== $phpToday) {
-    $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM submissions WHERE manager_id = ? AND date = ?");
-    $stmtCheck->execute([$uid, $today]);
-    $countDbDay = (int)$stmtCheck->fetchColumn();
+$startLabel = DateTime::createFromFormat('Y-m-d', $metrics['start']);
+$endLabel = DateTime::createFromFormat('Y-m-d', $metrics['end']);
+$rangeLabel = $rangeKey === 'today' ? 'Today' : 'This Month';
+$rangeSubtitle = $rangeKey === 'today'
+    ? ($endLabel ? $endLabel->format('j M Y') : $metrics['end'])
+    : (($startLabel && $endLabel) ? $startLabel->format('j M Y') . ' – ' . $endLabel->format('j M Y') : $metrics['start'] . ' – ' . $metrics['end']);
 
-    if ($countDbDay === 0) {
-        $stmtCheck->execute([$uid, $phpToday]);
-        if ((int)$stmtCheck->fetchColumn() > 0) {
-            $today = $phpToday;
-        }
-    }
-}
-
-// today totals across all outlets
-$stmt = $pdo->prepare("
-  SELECT
-    COALESCE(SUM(total_income),0)  AS inc,
-    COALESCE(SUM(total_expenses),0) AS exp,
-    COALESCE(SUM(balance),0)        AS bal
-  FROM submissions
-  WHERE manager_id=? AND date=?
-");
-$stmt->execute([$uid, $today]);
-$tot = $stmt->fetch() ?: ['inc'=>0,'exp'=>0,'bal'=>0];
-
-// per-outlet cards (today)
-$stmt2 = $pdo->prepare("
-  SELECT o.id, o.name, COALESCE(SUM(s.total_income),0) inc, COALESCE(SUM(s.total_expenses),0) exp, COALESCE(SUM(s.balance),0) bal
-  FROM user_outlets uo
-  JOIN outlets o ON o.id = uo.outlet_id
-  LEFT JOIN submissions s ON s.outlet_id=o.id AND s.manager_id=uo.user_id AND s.date=?
-  WHERE uo.user_id=?
-  GROUP BY o.id
-  ORDER BY o.name
-");
-$stmt2->execute([$today, $uid]);
-$perOutlet = $stmt2->fetchAll();
-
-// load today's submissions + receipts keyed by outlet
-$stmt3 = $pdo->prepare("
-  SELECT
-    s.id,
-    s.outlet_id,
-    s.date,
-    s.total_income,
-    s.total_expenses,
-    s.balance,
-    r.file_path,
-    r.original_name
-  FROM submissions s
-  LEFT JOIN receipts r ON r.submission_id = s.id
-  WHERE s.manager_id = ? AND s.date = ?
-  ORDER BY s.outlet_id, s.id, r.original_name
-");
-$stmt3->execute([$uid, $today]);
-$todaySubs = [];
-while ($row = $stmt3->fetch(PDO::FETCH_ASSOC)) {
-    $oid = (int)$row['outlet_id'];
-    $sid = (int)$row['id'];
-
-    if (!isset($todaySubs[$oid][$sid])) {
-        $todaySubs[$oid][$sid] = [
-            'id'       => $sid,
-            'date'     => $row['date'],
-            'income'   => (float)$row['total_income'],
-            'expenses' => (float)$row['total_expenses'],
-            'balance'  => (float)$row['balance'],
-            'receipts' => [],
-        ];
-    }
-
-    if (!empty($row['file_path'])) {
-        $path = $row['file_path'];
-        if (strpos($path, '/daily_closing/') !== 0) {
-            $path = '/daily_closing' . $path;
-        }
-        $todaySubs[$oid][$sid]['receipts'][] = [
-            'path' => $path,
-            'name' => $row['original_name'],
-        ];
-    }
+function manager_badge(string $label, int $count, float $amount, string $color): string
+{
+    $formattedAmount = number_format($amount, 2);
+    return sprintf(
+        '<span class="badge text-bg-%s rounded-pill">%s: %d (RM %s)</span>',
+        $color,
+        htmlspecialchars($label),
+        $count,
+        $formattedAmount
+    );
 }
 ?>
 <!doctype html>
@@ -98,76 +38,186 @@ while ($row = $stmt3->fetch(PDO::FETCH_ASSOC)) {
 <title>Manager Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  .kpi-card { min-height: 120px; }
+  .badge + .badge { margin-left: .5rem; }
+  .outlet-card { border-radius: 1rem; }
+  .chip { display: inline-flex; align-items: center; gap: .25rem; padding: .35rem .65rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+  .chip-warning { background-color: #fff3cd; color: #856404; }
+  .chip-info { background-color: #e7f1ff; color: #084298; }
+</style>
 </head>
 <body class="bg-light">
 <nav class="navbar navbar-expand-lg bg-white border-bottom">
   <div class="container">
     <a class="navbar-brand" href="#">Daily Closing</a>
-    <div class="ms-auto">
+    <div class="ms-auto d-flex gap-2">
+      <a class="btn btn-outline-secondary btn-sm" href="/daily_closing/manager_submissions.php">📄 My Submissions</a>
       <a class="btn btn-outline-danger btn-sm" href="/daily_closing/logout.php">Logout</a>
     </div>
   </div>
 </nav>
 
 <main class="container py-4">
-  <h4 class="mb-3">Today Overview</h4>
-  <div class="row g-3 mb-4">
-    <div class="col-md-4"><div class="card"><div class="card-body"><div class="text-muted">Sales</div><div class="h4">RM <?= number_format($tot['inc'],2) ?></div></div></div></div>
-    <div class="col-md-4"><div class="card"><div class="card-body"><div class="text-muted">Expenses</div><div class="h4">RM <?= number_format($tot['exp'],2) ?></div></div></div></div>
-    <div class="col-md-4"><div class="card"><div class="card-body"><div class="text-muted">Balance</div><div class="h4">RM <?= number_format($tot['bal'],2) ?></div></div></div></div>
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+    <div>
+      <h2 class="mb-1">Manager Dashboard</h2>
+      <div class="text-muted"><?= htmlspecialchars($rangeLabel) ?> · <?= htmlspecialchars($rangeSubtitle) ?></div>
+    </div>
+    <div class="btn-group" role="group" aria-label="Period toggle">
+      <a class="btn btn-sm <?= $rangeKey === 'month' ? 'btn-primary' : 'btn-outline-primary' ?>" href="?range=month">This Month</a>
+      <a class="btn btn-sm <?= $rangeKey === 'today' ? 'btn-primary' : 'btn-outline-primary' ?>" href="?range=today">Today</a>
+    </div>
   </div>
 
-  <div class="d-flex gap-2 mb-4">
-    <a class="btn btn-primary" href="/daily_closing/views/manager_submission_create.php">➕ Sales / Expenses</a>
-    <a class="btn btn-outline-primary" href="/daily_closing/manager_submissions.php">📄 My Submissions</a>
-    <a class="btn btn-dark" href="/daily_closing/views/report_hq.php">🏦 Report to HQ</a>
-    <a class="btn btn-outline-secondary" href="/daily_closing/manager_hq_batches.php">📚 HQ History</a>
-  </div>
-
-  <h5 class="mb-2">Per-Outlet (Today)</h5>
-  <div class="row g-3">
-    <?php foreach ($perOutlet as $r): ?>
-      <div class="col-md-4">
-        <div class="card h-100"><div class="card-body">
-          <div class="fw-semibold mb-2"><?= htmlspecialchars($r['name']) ?></div>
-          <div class="small text-muted">Sales</div><div>RM <?= number_format($r['inc'],2) ?></div>
-          <div class="small text-muted mt-2">Expenses</div><div>RM <?= number_format($r['exp'],2) ?></div>
-          <div class="small text-muted mt-2">Balance</div><div>RM <?= number_format($r['bal'],2) ?></div>
-          <?php $outletSubs = $todaySubs[(int)$r['id']] ?? []; ?>
-          <div class="mt-3 pt-3 border-top">
-            <div class="small text-uppercase text-muted fw-semibold mb-2">Today's Receipts</div>
-            <?php if ($outletSubs): ?>
-              <?php foreach ($outletSubs as $sub): ?>
-                <div class="mb-3">
-                  <div class="d-flex justify-content-between align-items-start gap-2">
-                    <div>
-                      <div class="small fw-semibold">Submission <?= htmlspecialchars($sub['date']) ?></div>
-                      <div class="small text-muted">Sales RM <?= number_format($sub['income'],2) ?> · Expenses RM <?= number_format($sub['expenses'],2) ?></div>
-                    </div>
-                    <a class="btn btn-sm btn-outline-primary" href="/daily_closing/manager_submission_view.php?id=<?= (int)$sub['id'] ?>">View details</a>
-                  </div>
-                  <?php if ($sub['receipts']): ?>
-                    <ul class="list-unstyled small mb-0 mt-2">
-                      <?php foreach ($sub['receipts'] as $rec): ?>
-                        <li class="d-flex align-items-center gap-2">
-                          <span class="text-muted">📎</span>
-                          <a href="<?= htmlspecialchars($rec['path']) ?>" target="_blank" rel="noopener"><?= htmlspecialchars($rec['name']) ?></a>
-                        </li>
-                      <?php endforeach; ?>
-                    </ul>
-                  <?php else: ?>
-                    <p class="text-muted small mb-0 mt-2">No receipts uploaded.</p>
-                  <?php endif; ?>
-                </div>
-              <?php endforeach; ?>
-            <?php else: ?>
-              <p class="text-muted small mb-0">No submissions yet today.</p>
-            <?php endif; ?>
+  <?php if ($metrics['outletCount'] === 0): ?>
+    <div class="alert alert-info">
+      <h5 class="alert-heading">No outlets assigned</h5>
+      <p class="mb-0">You currently do not have any active outlets assigned. Please contact the administrator to request an assignment.</p>
+    </div>
+  <?php else: ?>
+    <section class="mb-5">
+      <h5 class="text-uppercase text-muted mb-3">All Outlets — <?= htmlspecialchars($rangeLabel) ?></h5>
+      <div class="row g-3 mb-2">
+        <div class="col-md-4">
+          <div class="card kpi-card shadow-sm border-0">
+            <div class="card-body">
+              <div class="text-muted small">Sales (Approved, <?= htmlspecialchars($rangeLabel) ?>)</div>
+              <div class="display-6 fs-2">RM <?= number_format($totals['salesApproved'], 2) ?></div>
+            </div>
           </div>
-        </div></div>
+        </div>
+        <div class="col-md-4">
+          <div class="card kpi-card shadow-sm border-0">
+            <div class="card-body">
+              <div class="text-muted small">Expenses (Approved, <?= htmlspecialchars($rangeLabel) ?>)</div>
+              <div class="display-6 fs-2">RM <?= number_format($totals['expensesApproved'], 2) ?></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card kpi-card shadow-sm border-0">
+            <div class="card-body">
+              <div class="text-muted small">Cash on Hand (Approved, <?= htmlspecialchars($rangeLabel) ?>)</div>
+              <div class="display-6 fs-2">RM <?= number_format($totals['coh'], 2) ?></div>
+              <div class="text-muted small mt-2">Remitted (Approved, <?= htmlspecialchars($rangeLabel) ?>): RM <?= number_format($totals['remittedApproved'], 2) ?></div>
+            </div>
+          </div>
+        </div>
       </div>
-    <?php endforeach; ?>
-  </div>
+      <div class="d-flex flex-wrap gap-2">
+        <?= manager_badge('Pending submissions', (int)$totals['pendingSubmissionsCount'], (float)$totals['pendingSubmissionsAmount'], 'warning') ?>
+        <?= manager_badge('Pending remittances', (int)$totals['pendingRemittancesCount'], (float)$totals['pendingRemittancesAmount'], 'info') ?>
+      </div>
+    </section>
+
+    <section>
+      <h5 class="text-uppercase text-muted mb-3">Per Outlet — <?= htmlspecialchars($rangeLabel) ?></h5>
+      <div class="row g-4">
+        <?php foreach ($outlets as $outlet):
+          $oid = (int)$outlet['id'];
+          $data = $metrics['outlets'][$oid];
+          $pendingSubLabel = $data['pendingSubmissionsAmount'] >= 0 ? 'RM ' . number_format($data['pendingSubmissionsAmount'], 2) : 'RM ' . number_format($data['pendingSubmissionsAmount'], 2);
+          $pendingRemitLabel = 'RM ' . number_format($data['pendingRemittancesAmount'], 2);
+        ?>
+        <div class="col-lg-4">
+          <div class="card outlet-card shadow-sm border-0 h-100">
+            <div class="card-body d-flex flex-column">
+              <div class="d-flex align-items-start justify-content-between mb-3">
+                <h5 class="mb-0"><?= htmlspecialchars($outlet['name']) ?></h5>
+              </div>
+              <div class="mb-3">
+                <div class="small text-muted">Sales (Approved)</div>
+                <div class="fw-semibold">RM <?= number_format($data['salesApproved'], 2) ?></div>
+                <div class="small text-muted mt-2">Expenses (Approved)</div>
+                <div class="fw-semibold">RM <?= number_format($data['expensesApproved'], 2) ?></div>
+                <div class="small text-muted mt-2">Approved Remitted</div>
+                <div class="fw-semibold">RM <?= number_format($data['remittedApproved'], 2) ?></div>
+                <div class="small text-muted mt-2">Cash on Hand (Approved)</div>
+                <div class="fw-semibold text-success">RM <?= number_format($data['cashOnHand'], 2) ?></div>
+              </div>
+              <div class="mb-3 d-flex flex-column gap-2">
+                <span class="chip chip-warning">Pending submissions: <?= (int)$data['pendingSubmissionsCount'] ?> (<?= $pendingSubLabel ?>)</span>
+                <span class="chip chip-info">Pending remittances: <?= (int)$data['pendingRemittancesCount'] ?> (<?= $pendingRemitLabel ?>)</span>
+              </div>
+
+              <div class="mb-4">
+                <div class="small text-uppercase text-muted fw-semibold mb-2">Latest Submissions</div>
+                <?php if ($data['latestSubmissions']): ?>
+                  <ul class="list-unstyled mb-0">
+                    <?php foreach ($data['latestSubmissions'] as $submission):
+                      $status = strtolower((string)$submission['status']);
+                      $badgeMap = [
+                        'approved' => 'success',
+                        'pending' => 'warning',
+                        'rejected' => 'danger',
+                        'declined' => 'danger',
+                        'recorded' => 'info',
+                      ];
+                      $badgeColor = $badgeMap[$status] ?? 'secondary';
+                    ?>
+                      <li class="mb-2">
+                        <div class="d-flex justify-content-between gap-2">
+                          <div>
+                            <div class="fw-semibold small"><?= htmlspecialchars($submission['date']) ?></div>
+                            <div class="small text-muted">Sales RM <?= number_format((float)$submission['total_income'], 2) ?> · Expenses RM <?= number_format((float)$submission['total_expenses'], 2) ?></div>
+                          </div>
+                          <span class="badge text-bg-<?= $badgeColor ?> align-self-start"><?= htmlspecialchars(ucfirst($status)) ?></span>
+                        </div>
+                        <a class="small" href="/daily_closing/manager_submission_view.php?id=<?= (int)$submission['id'] ?>">View details</a>
+                      </li>
+                    <?php endforeach; ?>
+                  </ul>
+                <?php else: ?>
+                  <p class="text-muted small mb-0">No submissions yet.</p>
+                <?php endif; ?>
+              </div>
+
+              <div class="mb-4">
+                <div class="small text-uppercase text-muted fw-semibold mb-2">Today's Receipts</div>
+                <?php if ($data['todayReceipts']): ?>
+                  <?php foreach ($data['todayReceipts'] as $sub): ?>
+                    <div class="mb-3">
+                      <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div>
+                          <div class="small fw-semibold">Submission <?= htmlspecialchars($sub['date']) ?></div>
+                          <div class="small text-muted">Sales RM <?= number_format($sub['income'], 2) ?> · Expenses RM <?= number_format($sub['expenses'], 2) ?></div>
+                        </div>
+                        <a class="btn btn-sm btn-outline-primary" href="/daily_closing/manager_submission_view.php?id=<?= (int)$sub['id'] ?>">View details</a>
+                      </div>
+                      <?php if ($sub['receipts']): ?>
+                        <ul class="list-unstyled small mb-0 mt-2">
+                          <?php foreach ($sub['receipts'] as $rec): ?>
+                            <li class="d-flex align-items-center gap-2">
+                              <span class="text-muted">📎</span>
+                              <a href="<?= htmlspecialchars($rec['path']) ?>" target="_blank" rel="noopener"><?= htmlspecialchars($rec['name']) ?></a>
+                            </li>
+                          <?php endforeach; ?>
+                        </ul>
+                      <?php else: ?>
+                        <p class="text-muted small mb-0 mt-2">No receipts uploaded.</p>
+                      <?php endif; ?>
+                    </div>
+                  <?php endforeach; ?>
+                <?php else: ?>
+                  <p class="text-muted small mb-0">No submissions today.</p>
+                <?php endif; ?>
+              </div>
+
+              <div class="mt-auto pt-3 border-top">
+                <div class="d-flex flex-wrap gap-2">
+                  <a class="btn btn-sm btn-primary" href="/daily_closing/views/manager_submission_create.php?outlet_id=<?= $oid ?>">➕ Sales / Expenses</a>
+                  <a class="btn btn-sm btn-outline-primary" href="/daily_closing/views/report_hq.php">Upload deposit slip</a>
+                  <a class="btn btn-sm btn-outline-secondary" href="/daily_closing/manager_hq_batches.php">HQ History</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+    </section>
+  <?php endif; ?>
 </main>
 </body>
 </html>
