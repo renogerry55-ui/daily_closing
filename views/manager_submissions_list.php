@@ -105,7 +105,11 @@ $queryParams = $queryParams ?? [];
               ?>
               <span class="badge text-bg-<?= $badge ?>"><?= htmlspecialchars(ucfirst($r['status'])) ?></span>
             </td>
-            <td><a class="btn btn-sm btn-outline-secondary" href="#">View</a></td>
+            <td>
+              <a class="btn btn-sm btn-outline-secondary" href="/daily_closing/manager_submission_view.php?id=<?= (int)$r['id'] ?>">
+                View
+              </a>
+            </td>
           </tr>
         <?php endforeach; ?>
         </tbody>
