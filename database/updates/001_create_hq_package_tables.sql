@@ -1,12 +1,4 @@
--- Assumptions & Notes:
--- * Target database is MySQL 8.0+.
--- * Confirmed via `SHOW CREATE TABLE users;` that the table uses `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
---   with a primary key column defined as ``id` int(10) unsigned NOT NULL AUTO_INCREMENT`.
--- * Confirmed via `SHOW CREATE TABLE submissions;` that the table uses `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
---   with a primary key column defined as ``id` int(10) unsigned NOT NULL AUTO_INCREMENT`.
--- * Status lifecycle for HQ packages is `draft`, `submitted`, `approved`, or `rejected`; default is `draft`.
--- * Monetary totals are stored with DECIMAL(12,2) precision, reflecting PHP's rounding before persistence.
--- * `pass_to_hq` is treated as a boolean flag (0 = no, 1 = yes).
+
 
 START TRANSACTION;
 
