@@ -162,8 +162,8 @@ $buildPlaceholders = static function (array $ids): string {
 };
 
 $metrics = [
-    'today_submissions' => 0,
-    'pending_hq' => 0,
+    'sales_approved' => 0.0,
+    'expenses_approved' => 0.0,
     'cash_on_hand' => 0.0,
     'last_remittance' => null,
 ];
@@ -171,24 +171,15 @@ $metrics = [
 if ($availableOutletIds) {
     $today = (new DateTimeImmutable('today'))->format('Y-m-d');
 
-    $stmt = $pdo->prepare(
-        'SELECT COUNT(*) FROM submissions WHERE manager_id = ? AND date = ?'
-    );
-    $stmt->execute([$managerId, $today]);
-    $metrics['today_submissions'] = (int)$stmt->fetchColumn();
-
-    $stmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM submissions WHERE manager_id = ? AND status = 'submitted'"
-    );
-    $stmt->execute([$managerId]);
-    $metrics['pending_hq'] = (int)$stmt->fetchColumn();
-
     $placeholders = $buildPlaceholders($availableOutletIds);
 
-    $sqlNet = "SELECT IFNULL(SUM(total_income - total_expenses),0) FROM submissions WHERE status = 'approved' AND manager_id = ? AND outlet_id IN ($placeholders)";
-    $stmt = $pdo->prepare($sqlNet);
+    $sqlApproved = "SELECT IFNULL(SUM(total_income),0) AS total_income, IFNULL(SUM(total_expenses),0) AS total_expenses FROM submissions WHERE status = 'approved' AND manager_id = ? AND outlet_id IN ($placeholders)";
+    $stmt = $pdo->prepare($sqlApproved);
     $stmt->execute(array_merge([$managerId], $availableOutletIds));
-    $approvedNet = (float)$stmt->fetchColumn();
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['total_income' => 0, 'total_expenses' => 0];
+    $metrics['sales_approved'] = (float)$row['total_income'];
+    $metrics['expenses_approved'] = (float)$row['total_expenses'];
+    $approvedNet = max(0.0, $metrics['sales_approved'] - $metrics['expenses_approved']);
 
     $sqlRemit = "SELECT IFNULL(SUM(amount),0) FROM hq_remittances WHERE status = 'approved' AND outlet_id IN ($placeholders)";
     $stmt = $pdo->prepare($sqlRemit);
@@ -446,18 +437,18 @@ function status_badge_class(string $status): string
       <div class="col-sm-6 col-lg-3">
         <div class="card card-metric h-100">
           <div class="card-body">
-            <h6>Today Submitted</h6>
-            <div class="display-6 fw-semibold"><?= number_format($metrics['today_submissions']) ?></div>
-            <small class="text-muted">Submissions logged today</small>
+            <h6>Sales Approved</h6>
+            <div class="display-6 fw-semibold">RM <?= format_money($metrics['sales_approved']) ?></div>
+            <small class="text-muted">Approved sales total</small>
           </div>
         </div>
       </div>
       <div class="col-sm-6 col-lg-3">
         <div class="card card-metric h-100">
           <div class="card-body">
-            <h6>Pending HQ</h6>
-            <div class="display-6 fw-semibold"><?= number_format($metrics['pending_hq']) ?></div>
-            <small class="text-muted">Waiting for HQ review</small>
+            <h6>Expenses Approved</h6>
+            <div class="display-6 fw-semibold">RM <?= format_money($metrics['expenses_approved']) ?></div>
+            <small class="text-muted">Approved expense total</small>
           </div>
         </div>
       </div>
