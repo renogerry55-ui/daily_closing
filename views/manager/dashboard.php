@@ -4,6 +4,7 @@ require __DIR__ . '/../../includes/db.php';
 guard_manager();
 
 $uid = current_manager_id();
+$today = date('Y-m-d');
 
 // today totals across all outlets
 $stmt = $pdo->prepare("
@@ -12,9 +13,9 @@ $stmt = $pdo->prepare("
     COALESCE(SUM(total_expenses),0) AS exp,
     COALESCE(SUM(balance),0)        AS bal
   FROM submissions
-  WHERE manager_id=? AND date=CURDATE()
+  WHERE manager_id=? AND date=?
 ");
-$stmt->execute([$uid]);
+$stmt->execute([$uid, $today]);
 $tot = $stmt->fetch() ?: ['inc'=>0,'exp'=>0,'bal'=>0];
 
 // per-outlet cards (today)
@@ -22,12 +23,12 @@ $stmt2 = $pdo->prepare("
   SELECT o.id, o.name, COALESCE(SUM(s.total_income),0) inc, COALESCE(SUM(s.total_expenses),0) exp, COALESCE(SUM(s.balance),0) bal
   FROM user_outlets uo
   JOIN outlets o ON o.id = uo.outlet_id
-  LEFT JOIN submissions s ON s.outlet_id=o.id AND s.manager_id=uo.user_id AND s.date=CURDATE()
+  LEFT JOIN submissions s ON s.outlet_id=o.id AND s.manager_id=uo.user_id AND s.date=?
   WHERE uo.user_id=?
   GROUP BY o.id
   ORDER BY o.name
 ");
-$stmt2->execute([$uid]);
+$stmt2->execute([$today, $uid]);
 $perOutlet = $stmt2->fetchAll();
 
 // load today's submissions + receipts keyed by outlet
@@ -43,10 +44,10 @@ $stmt3 = $pdo->prepare("
     r.original_name
   FROM submissions s
   LEFT JOIN receipts r ON r.submission_id = s.id
-  WHERE s.manager_id = ? AND s.date = CURDATE()
+  WHERE s.manager_id = ? AND s.date = ?
   ORDER BY s.outlet_id, s.id, r.original_name
 ");
-$stmt3->execute([$uid]);
+$stmt3->execute([$uid, $today]);
 $todaySubs = [];
 while ($row = $stmt3->fetch(PDO::FETCH_ASSOC)) {
     $oid = (int)$row['outlet_id'];
