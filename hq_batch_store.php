@@ -86,7 +86,27 @@ try {
 
     // Save HQ attachments (bank-in slip etc.)
     $dt = new DateTime($date ?: 'today');
-    $saved = (!empty($_FILES['hq_files']) ? save_hq_files($_FILES['hq_files'], $dt, $errors) : []);
+    $saved = [];
+    if (!empty($_FILES['hq_files']) && is_array($_FILES['hq_files']['name'])) {
+        $filtered = [
+            'name' => [],
+            'type' => [],
+            'tmp_name' => [],
+            'error' => [],
+            'size' => [],
+        ];
+        for ($i = 0, $n = count($_FILES['hq_files']['name']); $i < $n; $i++) {
+            if (($_FILES['hq_files']['error'][$i] ?? null) === UPLOAD_ERR_NO_FILE) { continue; }
+            $filtered['name'][]     = $_FILES['hq_files']['name'][$i];
+            $filtered['type'][]     = $_FILES['hq_files']['type'][$i];
+            $filtered['tmp_name'][] = $_FILES['hq_files']['tmp_name'][$i];
+            $filtered['error'][]    = $_FILES['hq_files']['error'][$i];
+            $filtered['size'][]     = $_FILES['hq_files']['size'][$i];
+        }
+        if (!empty($filtered['name'])) {
+            $saved = save_hq_files($filtered, $dt, $errors);
+        }
+    }
     if ($errors) { throw new RuntimeException(implode('; ', $errors)); }
 
     if ($saved) {
