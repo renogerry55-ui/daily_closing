@@ -136,6 +136,27 @@ if (!$selectedOutletIds) {
     $selectedOutletIds = $availableOutletIds;
 }
 
+$outletLookup = [];
+foreach ($outlets as $outlet) {
+    $outletLookup[(int)$outlet['id']] = $outlet['name'];
+}
+
+$selectedOutletNames = [];
+foreach ($selectedOutletIds as $outletId) {
+    if (isset($outletLookup[$outletId])) {
+        $selectedOutletNames[] = $outletLookup[$outletId];
+    }
+}
+
+$selectedOutletSummary = 'All outlets';
+if ($selectedOutletNames && count($selectedOutletIds) !== count($availableOutletIds)) {
+    if (count($selectedOutletNames) <= 2) {
+        $selectedOutletSummary = implode(', ', $selectedOutletNames);
+    } else {
+        $selectedOutletSummary = count($selectedOutletNames) . ' outlets selected';
+    }
+}
+
 $buildPlaceholders = static function (array $ids): string {
     return implode(',', array_fill(0, count($ids), '?'));
 };
@@ -383,6 +404,16 @@ function status_badge_class(string $status): string
   .table thead th { text-transform: uppercase; font-size: .7rem; letter-spacing: .05em; color: #94a3b8; border-bottom: 2px solid #e2e8f0; }
   .table tbody td { vertical-align: middle; }
   .filters-card { border-radius: 1rem; box-shadow: 0 4px 16px rgba(15, 23, 42, .06); }
+  .filters-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem 1rem; }
+  .filters-toolbar .filter-field { min-width: 140px; flex: 1 1 160px; }
+  .filters-toolbar .filter-actions { margin-left: auto; display: flex; gap: .5rem; flex-wrap: wrap; }
+  @media (max-width: 575.98px) {
+    .filters-toolbar .filter-actions { width: 100%; justify-content: flex-end; }
+  }
+  .outlet-selector-button { padding: .55rem .75rem; border-radius: .75rem; }
+  .outlet-selector-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dropdown-menu.outlet-selector-menu { min-width: 16rem; max-height: 16rem; overflow: auto; }
+  .dropdown-menu.outlet-selector-menu .form-check { padding-left: 1.75rem; }
 </style>
 </head>
 <body>
@@ -459,47 +490,69 @@ function status_badge_class(string $status): string
   </div>
 
   <section class="filters-bar mb-4 border rounded-4 p-3 bg-white">
-    <form class="row gy-2 gx-3 align-items-end" method="get">
+    <form class="filters-toolbar w-100" method="get">
       <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
       <input type="hidden" name="action" value="apply">
-      <div class="col-12 col-md-3">
+
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
         <label class="form-label small text-uppercase text-muted">Date range</label>
-        <select class="form-select" name="range">
+        <select class="form-select form-select-sm" name="range">
           <?php foreach ($rangeOptions as $value => $label): ?>
             <option value="<?= $value ?>" <?= ($currentFilters['range'] ?? 'week') === $value ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-12 col-md-3">
+
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
         <label class="form-label small text-uppercase text-muted">Outlets</label>
-        <select class="form-select" name="outlets[]" multiple size="<?= min(4, max(2, count($outlets))) ?>">
-          <?php foreach ($outlets as $outlet): ?>
-            <option value="<?= (int)$outlet['id'] ?>" <?= in_array((int)$outlet['id'], $currentFilters['outlets'] ?: $availableOutletIds, true) ? 'selected' : '' ?>><?= htmlspecialchars($outlet['name']) ?></option>
-          <?php endforeach; ?>
-        </select>
-        <small class="text-muted">Hold Ctrl/⌘ to select multiple.</small>
+        <div class="dropdown w-100" data-bs-auto-close="outside" data-filter-outlets data-outlet-count="<?= count($availableOutletIds) ?>">
+          <button class="btn btn-outline-secondary w-100 d-flex align-items-center justify-content-between outlet-selector-button" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <span id="outletSelectorLabel" class="me-2 flex-grow-1 text-start text-truncate small fw-semibold"><?= htmlspecialchars($selectedOutletSummary) ?></span>
+            <span class="text-muted small">▾</span>
+          </button>
+          <div class="dropdown-menu outlet-selector-menu w-100 shadow-sm p-3">
+            <?php if ($outlets): ?>
+              <?php foreach ($outlets as $outlet): ?>
+                <?php $outletId = (int)$outlet['id']; ?>
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" name="outlets[]" value="<?= $outletId ?>" id="filter-outlet-<?= $outletId ?>" data-label="<?= htmlspecialchars($outlet['name']) ?>" <?= in_array($outletId, $selectedOutletIds, true) ? 'checked' : '' ?>>
+                  <label class="form-check-label" for="filter-outlet-<?= $outletId ?>"><?= htmlspecialchars($outlet['name']) ?></label>
+                </div>
+              <?php endforeach; ?>
+              <div class="d-flex align-items-center gap-2 pt-1 border-top mt-2 pt-2">
+                <button type="button" class="btn btn-link btn-sm px-0" data-action="select-all">Select all</button>
+                <span class="text-muted">·</span>
+                <button type="button" class="btn btn-link btn-sm px-0" data-action="clear">Clear</button>
+              </div>
+            <?php else: ?>
+              <span class="text-muted small">No outlets assigned yet.</span>
+            <?php endif; ?>
+          </div>
+        </div>
       </div>
-      <div class="col-12 col-md-3">
+
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
         <label class="form-label small text-uppercase text-muted">Status</label>
-        <select class="form-select" name="status">
+        <select class="form-select form-select-sm" name="status">
           <?php foreach ($statusOptions[$tab] as $value => $label): ?>
             <option value="<?= htmlspecialchars($value) ?>" <?= ($currentFilters['status'] ?? 'all') === $value ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-6 col-md-1">
+
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
         <label class="form-label small text-uppercase text-muted">From</label>
-        <input type="date" class="form-control" name="date_from" value="<?= htmlspecialchars($currentFilters['date_from'] ?? '') ?>">
+        <input type="date" class="form-control form-control-sm" name="date_from" value="<?= htmlspecialchars($currentFilters['date_from'] ?? '') ?>">
       </div>
-      <div class="col-6 col-md-1">
+
+      <div class="filter-field flex-grow-1 flex-lg-grow-0">
         <label class="form-label small text-uppercase text-muted">To</label>
-        <input type="date" class="form-control" name="date_to" value="<?= htmlspecialchars($currentFilters['date_to'] ?? '') ?>">
+        <input type="date" class="form-control form-control-sm" name="date_to" value="<?= htmlspecialchars($currentFilters['date_to'] ?? '') ?>">
       </div>
-      <div class="col-6 col-md-1 d-grid">
-        <button type="submit" class="btn btn-primary">Apply</button>
-      </div>
-      <div class="col-6 col-md-1 d-grid">
-        <a class="btn btn-outline-secondary" href="?tab=<?= htmlspecialchars($tab) ?>&amp;action=reset">Reset</a>
+
+      <div class="filter-actions">
+        <button type="submit" class="btn btn-primary btn-sm px-3">Apply</button>
+        <a class="btn btn-outline-secondary btn-sm px-3" href="?tab=<?= htmlspecialchars($tab) ?>&amp;action=reset">Reset</a>
       </div>
     </form>
   </section>
@@ -677,5 +730,50 @@ function status_badge_class(string $status): string
     </div>
   </div>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const outletDropdown = document.querySelector('[data-filter-outlets]');
+    if (!outletDropdown) {
+      return;
+    }
+
+    const outletCount = parseInt(outletDropdown.getAttribute('data-outlet-count'), 10) || 0;
+    const summaryEl = outletDropdown.querySelector('#outletSelectorLabel');
+    const checkboxes = Array.from(outletDropdown.querySelectorAll('input[type="checkbox"][name="outlets[]"]'));
+
+    const updateSummary = () => {
+      const selected = checkboxes.filter(cb => cb.checked);
+      let label = 'All outlets';
+      if (selected.length && selected.length !== outletCount) {
+        const names = selected.map(cb => cb.getAttribute('data-label'));
+        if (names.length <= 2) {
+          label = names.join(', ');
+        } else {
+          label = `${names.length} outlets selected`;
+        }
+      }
+      summaryEl.textContent = label || 'All outlets';
+    };
+
+    checkboxes.forEach(cb => cb.addEventListener('change', updateSummary));
+
+    outletDropdown.querySelectorAll('[data-action="select-all"]').forEach(button => {
+      button.addEventListener('click', function () {
+        checkboxes.forEach(cb => { cb.checked = true; });
+        updateSummary();
+      });
+    });
+
+    outletDropdown.querySelectorAll('[data-action="clear"]').forEach(button => {
+      button.addEventListener('click', function () {
+        checkboxes.forEach(cb => { cb.checked = false; });
+        updateSummary();
+      });
+    });
+
+    updateSummary();
+  });
+</script>
 </body>
 </html>
