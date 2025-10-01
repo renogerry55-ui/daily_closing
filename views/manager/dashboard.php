@@ -60,6 +60,7 @@ $perOutlet = $stmt2->fetchAll();
     <a class="btn btn-primary" href="/daily_closing/views/manager_submission_create.php">➕ Sales / Expenses</a>
     <a class="btn btn-outline-primary" href="/daily_closing/manager_submissions.php">📄 My Submissions</a>
     <a class="btn btn-dark" href="/daily_closing/views/report_hq.php">🏦 Report to HQ</a>
+    <a class="btn btn-outline-secondary" href="/daily_closing/manager_hq_batches.php">📚 HQ History</a>
   </div>
 
   <h5 class="mb-2">Per-Outlet (Today)</h5>
