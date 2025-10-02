@@ -85,6 +85,7 @@ CREATE TABLE `hq_batches` (
   `status` enum('submitted','approved','rejected','recorded') NOT NULL DEFAULT 'submitted',
   `overall_total_income` decimal(14,2) NOT NULL DEFAULT 0.00,
   `overall_total_expenses` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `overall_pass_to_office` decimal(14,2) NOT NULL DEFAULT 0.00,
   `overall_balance` decimal(14,2) NOT NULL DEFAULT 0.00,
   `notes` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -101,7 +102,7 @@ CREATE TABLE `hq_batches` (
 
 LOCK TABLES `hq_batches` WRITE;
 /*!40000 ALTER TABLE `hq_batches` DISABLE KEYS */;
-INSERT INTO `hq_batches` VALUES (1,1,'2025-10-01','submitted',11000.00,1010.00,9990.00,'','2025-10-01 02:31:07','2025-10-01 02:31:07');
+INSERT INTO `hq_batches` VALUES (1,1,'2025-10-01','submitted',11000.00,1010.00,0.00,9990.00,'','2025-10-01 02:31:07','2025-10-01 02:31:07');
 /*!40000 ALTER TABLE `hq_batches` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -318,6 +319,7 @@ CREATE TABLE `submissions` (
   `total_income` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_expenses` decimal(12,2) NOT NULL DEFAULT 0.00,
   `balance` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `pass_to_office` decimal(12,2) NOT NULL DEFAULT 0.00,
   `notes` text DEFAULT NULL,
   `account_comment` text DEFAULT NULL,
   `submitted_to_hq_at` datetime DEFAULT NULL,
@@ -339,7 +341,7 @@ CREATE TABLE `submissions` (
 
 LOCK TABLES `submissions` WRITE;
 /*!40000 ALTER TABLE `submissions` DISABLE KEYS */;
-INSERT INTO `submissions` VALUES (2,1,2,'2025-10-01','pending',1000.00,10.00,990.00,'testing',NULL,'2025-10-01 10:31:07','2025-10-01 01:00:02','2025-10-01 02:31:07'),(3,1,1,'2025-10-01','pending',1270.00,200.00,1070.00,'',NULL,NULL,'2025-10-01 14:09:44','2025-10-01 14:09:44');
+INSERT INTO `submissions` VALUES (2,1,2,'2025-10-01','pending',1000.00,10.00,990.00,0.00,'testing',NULL,'2025-10-01 10:31:07','2025-10-01 01:00:02','2025-10-01 02:31:07'),(3,1,1,'2025-10-01','pending',1270.00,200.00,1070.00,0.00,'',NULL,NULL,'2025-10-01 14:09:44','2025-10-01 14:09:44');
 /*!40000 ALTER TABLE `submissions` ENABLE KEYS */;
 UNLOCK TABLES;
 

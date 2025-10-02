@@ -3,6 +3,7 @@
 require __DIR__ . '/includes/auth_guard.php';
 require __DIR__ . '/includes/db.php';
 require __DIR__ . '/includes/upload_helpers.php';
+require __DIR__ . '/includes/cash_metrics.php';
 
 guard_manager();
 $managerId = current_manager_id();
@@ -27,6 +28,21 @@ if ($outletId > 0) {
 
 $income = $_POST['income']  ?? ['category'=>[], 'amount'=>[], 'description'=>[]];
 $expense= $_POST['expense'] ?? ['category'=>[], 'amount'=>[], 'description'=>[]];
+$passInput = trim($_POST['pass_to_office'] ?? '');
+$passToOffice = null;
+
+if ($passInput === '') {
+    $errors[] = 'Pass to Office amount is required.';
+} else {
+    if (!preg_match('/^\d+(\.\d{1,2})?$/', $passInput)) {
+        $errors[] = 'Pass to Office amount must be a number with up to 2 decimals.';
+    } else {
+        $passToOffice = (float)$passInput;
+        if ($passToOffice < 0) {
+            $errors[] = 'Pass to Office amount must be zero or more.';
+        }
+    }
+}
 
 $allowedIncome  = ['Deposit','MP','Berhad','Market','Other'];
 $allowedExpense = ['Expenses','Staff Salary','Staff Advance','Pass to HQ','Other'];
@@ -104,16 +120,32 @@ $totalIncome = 0.0; foreach ($incomeRows as $r)  { if ($r['category']!=='') $tot
 $totalExpenses = 0.0; foreach ($expenseRows as $r) { if ($r['category']!=='') $totalExpenses+= $r['amount']; }
 $balance = $totalIncome - $totalExpenses;
 
+if ($passToOffice === null) {
+    $passToOffice = 0.0;
+}
+
+$postedCoh = $outletId > 0 ? outlet_posted_cash_on_hand($pdo, $managerId, $outletId) : 0.0;
+$maxPass = max(0.0, $postedCoh + $balance);
+if ($passToOffice - $maxPass > 0.0001) {
+    $errors[] = 'Pass to Office cannot exceed current cash on hand.';
+}
+
+if ($errors) {
+    $_SESSION['flash_error'] = implode("\n", $errors);
+    header('Location: /daily_closing/views/manager_submission_create.php');
+    exit;
+}
+
 // ----- Store (transaction) -----
 try {
     $pdo->beginTransaction();
 
     // Header
     $stmt = $pdo->prepare("
-        INSERT INTO submissions (manager_id, outlet_id, date, status, total_income, total_expenses, balance, notes)
-        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+        INSERT INTO submissions (manager_id, outlet_id, date, status, total_income, total_expenses, balance, pass_to_office, notes)
+        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
     ");
-    $stmt->execute([$managerId, $outletId, $date, $totalIncome, $totalExpenses, $balance, $notes]);
+    $stmt->execute([$managerId, $outletId, $date, $totalIncome, $totalExpenses, $balance, $passToOffice, $notes]);
     $submissionId = (int)$pdo->lastInsertId();
 
     // Items

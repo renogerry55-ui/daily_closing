@@ -83,6 +83,8 @@ $queryParams = $queryParams ?? [];
             <th class="text-end" style="width:140px;">Income (RM)</th>
             <th class="text-end" style="width:150px;">Expenses (RM)</th>
             <th class="text-end" style="width:140px;">Balance (RM)</th>
+            <th class="text-end" style="width:160px;">Pass to Office (RM)</th>
+            <th class="text-end" style="width:160px;">COH Change (RM)</th>
             <th style="width:120px;">Status</th>
             <th style="width:110px;">Actions</th>
           </tr>
@@ -95,6 +97,13 @@ $queryParams = $queryParams ?? [];
             <td class="text-end"><?= number_format((float)$r['total_income'],2) ?></td>
             <td class="text-end"><?= number_format((float)$r['total_expenses'],2) ?></td>
             <td class="text-end"><?= number_format((float)$r['balance'],2) ?></td>
+            <td class="text-end"><?= number_format((float)$r['pass_to_office'],2) ?></td>
+            <td class="text-end">
+              <?php $delta = (float)$r['net_cash']; ?>
+              <span class="<?= $delta >= 0 ? 'text-success' : 'text-danger' ?>">
+                <?= number_format($delta,2) ?>
+              </span>
+            </td>
             <td>
               <?php
                 $badge = match ($r['status']) {

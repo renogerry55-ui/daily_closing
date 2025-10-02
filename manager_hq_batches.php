@@ -27,6 +27,7 @@ $sql = "
         b.status,
         b.overall_total_income,
         b.overall_total_expenses,
+        b.overall_pass_to_office,
         b.overall_balance,
         b.notes,
         COUNT(DISTINCT s.outlet_id)   AS outlet_count,

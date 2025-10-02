@@ -54,17 +54,21 @@
           </div>
         </div>
         <div class="row mt-3 g-3">
-          <div class="col-sm-6">
+          <div class="col-sm-6 col-md-3">
             <div class="fw-semibold text-muted text-uppercase small">Outlet</div>
             <div class="fs-5"><?= htmlspecialchars($submission['outlet_name']) ?></div>
           </div>
-          <div class="col-sm-3">
+          <div class="col-sm-6 col-md-3">
             <div class="fw-semibold text-muted text-uppercase small">Date</div>
             <div class="fs-5"><?= htmlspecialchars($submission['date']) ?></div>
           </div>
-          <div class="col-sm-3">
-            <div class="fw-semibold text-muted text-uppercase small">Balance</div>
+          <div class="col-sm-6 col-md-3">
+            <div class="fw-semibold text-muted text-uppercase small">Net Balance</div>
             <div class="fs-5">RM <?= number_format((float)$submission['balance'], 2) ?></div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <div class="fw-semibold text-muted text-uppercase small">Pass to Office</div>
+            <div class="fs-5">RM <?= number_format((float)$submission['pass_to_office'], 2) ?></div>
           </div>
         </div>
       </div>
@@ -143,16 +147,43 @@
 
       <div class="receipt-section">
         <div class="row g-3 align-items-center">
-          <div class="col-sm-6">
-            <div class="fw-semibold text-muted text-uppercase small">Net Balance</div>
-            <div class="fs-4">RM <?= number_format((float)$submission['balance'], 2) ?></div>
+          <div class="col-lg-4">
+            <div class="fw-semibold text-muted text-uppercase small">Pass to Office</div>
+            <div class="fs-4">RM <?= number_format((float)$submission['pass_to_office'], 2) ?></div>
           </div>
-          <?php if (!empty($submission['notes'])): ?>
-            <div class="col-sm-6">
-              <div class="fw-semibold text-muted text-uppercase small">Notes</div>
-              <div><?= nl2br(htmlspecialchars($submission['notes'])) ?></div>
+          <div class="col-lg-4">
+            <div class="fw-semibold text-muted text-uppercase small">Net Impact (Income − Expenses − Pass)</div>
+            <div class="fs-4">RM <?= number_format((float)$submission['net_change'], 2) ?></div>
+            <div class="text-muted small">New COH = Old COH + Net Impact</div>
+          </div>
+          <div class="col-lg-4">
+            <div class="fw-semibold text-muted text-uppercase small">Notes</div>
+            <div><?= $submission['notes'] ? nl2br(htmlspecialchars($submission['notes'])) : '<span class="text-muted">—</span>' ?></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="receipt-section">
+        <h3 class="h5">Cash on Hand</h3>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <div class="border rounded-4 p-3 bg-light">
+              <div class="text-muted small text-uppercase">Old COH</div>
+              <div class="fs-4 fw-semibold">RM <?= number_format((float)$submission['coh_before'], 2) ?></div>
             </div>
-          <?php endif; ?>
+          </div>
+          <div class="col-md-4">
+            <div class="border rounded-4 p-3 bg-light">
+              <div class="text-muted small text-uppercase">Pending Adjustment</div>
+              <div class="fs-4 fw-semibold">RM <?= number_format((float)$submission['net_change'], 2) ?></div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="border rounded-4 p-3 bg-light">
+              <div class="text-muted small text-uppercase">New COH</div>
+              <div class="fs-4 fw-semibold">RM <?= number_format((float)$submission['coh_after'], 2) ?></div>
+            </div>
+          </div>
         </div>
       </div>
 

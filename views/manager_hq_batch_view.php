@@ -64,8 +64,12 @@
             <div class="fs-5">RM <?= number_format((float)$batch['overall_balance'], 2) ?></div>
           </div>
           <div class="col-sm-4">
-            <div class="fw-semibold text-muted text-uppercase small">Overall Income / Expenses</div>
+            <div class="fw-semibold text-muted text-uppercase small">Income / Expenses</div>
             <div>RM <?= number_format((float)$batch['overall_total_income'], 2) ?> / RM <?= number_format((float)$batch['overall_total_expenses'], 2) ?></div>
+          </div>
+          <div class="col-sm-4">
+            <div class="fw-semibold text-muted text-uppercase small">Pass to Office</div>
+            <div class="fs-5">RM <?= number_format((float)$batch['overall_pass_to_office'], 2) ?></div>
           </div>
         </div>
         <?php if (!empty($batch['notes'])): ?>
@@ -86,9 +90,10 @@
               <thead class="text-muted text-uppercase small">
                 <tr>
                   <th>Outlet</th>
-                  <th class="text-end" style="width:160px;">Income (RM)</th>
-                  <th class="text-end" style="width:170px;">Expenses (RM)</th>
-                  <th class="text-end" style="width:150px;">Balance (RM)</th>
+                  <th class="text-end" style="width:140px;">Income (RM)</th>
+                  <th class="text-end" style="width:140px;">Expenses (RM)</th>
+                  <th class="text-end" style="width:140px;">Pass to Office (RM)</th>
+                  <th class="text-end" style="width:140px;">Balance (RM)</th>
                 </tr>
               </thead>
               <tbody>
@@ -97,6 +102,7 @@
                   <td><?= htmlspecialchars($outlet) ?></td>
                   <td class="text-end"><?= number_format($totals['income'], 2) ?></td>
                   <td class="text-end"><?= number_format($totals['expenses'], 2) ?></td>
+                  <td class="text-end"><?= number_format($totals['pass'], 2) ?></td>
                   <td class="text-end"><?= number_format($totals['balance'], 2) ?></td>
                 </tr>
               <?php endforeach; ?>
@@ -115,9 +121,10 @@
                 <th style="width:110px;">Submission</th>
                 <th style="width:130px;">Date</th>
                 <th>Outlet</th>
-                <th class="text-end" style="width:140px;">Income (RM)</th>
-                <th class="text-end" style="width:150px;">Expenses (RM)</th>
-                <th class="text-end" style="width:140px;">Balance (RM)</th>
+                <th class="text-end" style="width:130px;">Income (RM)</th>
+                <th class="text-end" style="width:130px;">Expenses (RM)</th>
+                <th class="text-end" style="width:130px;">Pass to Office (RM)</th>
+                <th class="text-end" style="width:130px;">Balance (RM)</th>
                 <th style="width:140px;">Status</th>
                 <th style="width:110px;">Link</th>
               </tr>
@@ -144,6 +151,7 @@
                   <td><?= htmlspecialchars($row['outlet_name']) ?></td>
                   <td class="text-end"><?= number_format((float)$row['total_income'], 2) ?></td>
                   <td class="text-end"><?= number_format((float)$row['total_expenses'], 2) ?></td>
+                  <td class="text-end"><?= number_format((float)$row['pass_to_office'], 2) ?></td>
                   <td class="text-end"><?= number_format((float)$row['balance'], 2) ?></td>
                   <td>
                     <span class="badge text-bg-<?= $badge ?>"><?= htmlspecialchars(ucfirst($row['status'])) ?></span>

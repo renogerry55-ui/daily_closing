@@ -13,7 +13,7 @@ if ($batchId <= 0) {
 }
 
 $sql = "
-    SELECT b.id, b.report_date, b.status, b.overall_total_income, b.overall_total_expenses, b.overall_balance, b.notes
+    SELECT b.id, b.report_date, b.status, b.overall_total_income, b.overall_total_expenses, b.overall_pass_to_office, b.overall_balance, b.notes
     FROM hq_batches b
     WHERE b.id = ? AND b.manager_id = ?
 ";
@@ -27,7 +27,7 @@ if (!$batch) {
 }
 
 $stmtSub = $pdo->prepare("\
-    SELECT s.id, s.date, s.total_income, s.total_expenses, s.balance, s.status, s.submitted_to_hq_at,\
+    SELECT s.id, s.date, s.total_income, s.total_expenses, s.balance, s.pass_to_office, s.status, s.submitted_to_hq_at,\
            o.name AS outlet_name\
     FROM hq_batch_submissions hbs\
     JOIN submissions s ON s.id = hbs.submission_id\
@@ -52,12 +52,14 @@ foreach ($submissions as $row) {
         $outletTotals[$outlet] = [
             'income'   => 0.0,
             'expenses' => 0.0,
+            'pass'     => 0.0,
             'balance'  => 0.0,
             'submissions' => [],
         ];
     }
     $outletTotals[$outlet]['income']   += (float)$row['total_income'];
     $outletTotals[$outlet]['expenses'] += (float)$row['total_expenses'];
+    $outletTotals[$outlet]['pass']     += (float)$row['pass_to_office'];
     $outletTotals[$outlet]['balance']  += (float)$row['balance'];
     $outletTotals[$outlet]['submissions'][] = $row;
 }
