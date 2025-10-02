@@ -60,6 +60,7 @@
               <th>Submissions</th>
               <th class="text-end" style="width:140px;">Income (RM)</th>
               <th class="text-end" style="width:150px;">Expenses (RM)</th>
+              <th class="text-end" style="width:150px;">Pass to Office (RM)</th>
               <th class="text-end" style="width:140px;">Balance (RM)</th>
               <th style="width:150px;">Status</th>
               <th style="width:120px;">Actions</th>
@@ -90,6 +91,7 @@
               <td><?= (int)$batch['submission_count'] ?></td>
               <td class="text-end"><?= number_format((float)$batch['overall_total_income'], 2) ?></td>
               <td class="text-end"><?= number_format((float)$batch['overall_total_expenses'], 2) ?></td>
+              <td class="text-end"><?= number_format((float)$batch['overall_pass_to_office'], 2) ?></td>
               <td class="text-end"><?= number_format((float)$batch['overall_balance'], 2) ?></td>
               <td>
                 <div class="d-flex flex-column">

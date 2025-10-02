@@ -12,11 +12,14 @@ $reportDate = $_GET['date'] ?? (new DateTime('today'))->format('Y-m-d');
 // fetch submissions for that date per outlet (only those not yet sent to HQ)
 $stmt = $pdo->prepare("
   SELECT s.id, s.outlet_id, o.name AS outlet_name,
-         s.total_income, s.total_expenses, s.balance,
-         s.status, s.submitted_to_hq_at
+         s.total_income, s.total_expenses, s.balance, s.pass_to_office,
+         s.status, s.submitted_to_hq_at,
+         COUNT(r.id) AS receipts_count
   FROM submissions s
   JOIN outlets o ON o.id = s.outlet_id
+  LEFT JOIN receipts r ON r.submission_id = s.id
   WHERE s.manager_id = ? AND s.date = ?
+  GROUP BY s.id, s.outlet_id, o.name, s.total_income, s.total_expenses, s.balance, s.pass_to_office, s.status, s.submitted_to_hq_at
   ORDER BY o.name
 ");
 $stmt->execute([$managerId, $reportDate]);
@@ -27,7 +30,7 @@ $byOutlet = [];
 foreach ($subs as $row) { $byOutlet[(int)$row['outlet_id']][] = $row; }
 
 // precompute sums
-$overallInc = 0.0; $overallExp = 0.0; $overallBal = 0.0;
+$overallInc = 0.0; $overallExp = 0.0; $overallBal = 0.0; $overallPass = 0.0; $overallReceipts = 0;
 ?>
 <!doctype html>
 <html lang="en">
@@ -68,8 +71,16 @@ $overallInc = 0.0; $overallExp = 0.0; $overallBal = 0.0;
     </form>
   </div>
 
-  <form class="card card-body" method="post" action="/daily_closing/hq_batch_store.php" enctype="multipart/form-data">
+  <?php $blockedOutlets = 0; ?>
+  <form class="card card-body" method="post" action="/daily_closing/hq_batch_store.php" enctype="multipart/form-data" id="hqBatchForm">
     <input type="hidden" name="date" value="<?= htmlspecialchars($reportDate) ?>">
+
+    <div class="alert alert-info d-flex flex-wrap align-items-center gap-3 mb-4">
+      <div><strong>Total to send:</strong> RM <span id="summaryTotal">0.00</span></div>
+      <div><strong>Outlets:</strong> <span id="summaryOutlets">0</span></div>
+      <div><strong>Submissions:</strong> <span id="summarySubs">0</span></div>
+      <div><strong>Receipts attached:</strong> <span id="summaryReceipts">0</span></div>
+    </div>
 
     <div class="table-responsive">
       <table class="table align-middle">
@@ -77,34 +88,45 @@ $overallInc = 0.0; $overallExp = 0.0; $overallBal = 0.0;
           <tr>
             <th style="width:60px;">Include</th>
             <th>Outlet</th>
-            <th class="text-end" style="width:160px;">Income (RM)</th>
-            <th class="text-end" style="width:170px;">Expenses (RM)</th>
+            <th class="text-end" style="width:150px;">Income (RM)</th>
+            <th class="text-end" style="width:150px;">Expenses (RM)</th>
             <th class="text-end" style="width:150px;">Balance (RM)</th>
+            <th class="text-end" style="width:150px;">Pass to Office (RM)</th>
+            <th style="width:140px;">Receipts</th>
             <th style="width:140px;">Status</th>
           </tr>
         </thead>
         <tbody>
-        <?php foreach ($outlets as $o): 
+        <?php foreach ($outlets as $o):
           $oid = (int)$o['id'];
           $name = $o['name'];
           $rows = $byOutlet[$oid] ?? [];
-          // if multiple submissions per outlet per date are allowed, sum them all
-          $inc=0.0; $exp=0.0; $bal=0.0; $includeIds=[]; $allSubmitted=true; $status='—';
+          $inc=0.0; $exp=0.0; $bal=0.0; $pass=0.0; $receipts=0; $includeIds=[]; $status='—'; $blocked=false;
           if ($rows) {
-            $allSubmitted=true;
             foreach ($rows as $r) {
               $inc += (float)$r['total_income'];
               $exp += (float)$r['total_expenses'];
               $bal += (float)$r['balance'];
-              if (empty($r['submitted_to_hq_at'])) { $includeIds[] = (int)$r['id']; $allSubmitted=false; $status=$r['status']; }
+              if (empty($r['submitted_to_hq_at'])) {
+                $includeIds[] = (int)$r['id'];
+                $status = $r['status'];
+                $pass += (float)$r['pass_to_office'];
+                $receipts += (int)$r['receipts_count'];
+                if ((int)$r['receipts_count'] === 0) {
+                  $blocked = true;
+                }
+              }
             }
-          } else {
-            $allSubmitted=false; $status='none';
           }
-          $overallInc += $inc; $overallExp += $exp; $overallBal += $bal;
 
-          // can include only if there is at least one not-submitted submission
-          $canInclude = !empty($includeIds);
+          $overallPass += $pass;
+          $overallReceipts += $receipts;
+          if ($includeIds && $blocked) {
+            $blockedOutlets++;
+          }
+
+          $overallInc += $inc; $overallExp += $exp; $overallBal += $bal;
+          $canInclude = !empty($includeIds) && !$blocked;
         ?>
           <tr>
             <td>
@@ -112,7 +134,7 @@ $overallInc = 0.0; $overallExp = 0.0; $overallBal = 0.0;
                 <?php foreach ($includeIds as $sid): ?>
                   <input type="hidden" name="submissions_by_outlet[<?= $oid ?>][]" value="<?= $sid ?>">
                 <?php endforeach; ?>
-                <input type="checkbox" class="form-check-input" name="include_outlets[]" value="<?= $oid ?>" checked>
+                <input type="checkbox" class="form-check-input" name="include_outlets[]" value="<?= $oid ?>" checked data-pass="<?= number_format($pass, 2, '.', '') ?>" data-receipts="<?= (int)$receipts ?>" data-submissions="<?= count($includeIds) ?>">
               <?php else: ?>
                 <input class="form-check-input" type="checkbox" disabled>
               <?php endif; ?>
@@ -121,12 +143,22 @@ $overallInc = 0.0; $overallExp = 0.0; $overallBal = 0.0;
             <td class="text-end"><?= number_format($inc,2) ?></td>
             <td class="text-end"><?= number_format($exp,2) ?></td>
             <td class="text-end"><?= number_format($bal,2) ?></td>
+            <td class="text-end"><?= number_format($pass,2) ?></td>
+            <td>
+              <?php if ($includeIds): ?>
+                <span class="badge <?= $blocked ? 'text-bg-warning text-dark' : 'text-bg-light text-dark' ?>">📎 <?= (int)$receipts ?></span>
+                <?php if ($blocked): ?><small class="text-danger d-block">Attach receipts to enable</small><?php endif; ?>
+              <?php else: ?>
+                <span class="text-muted">—</span>
+              <?php endif; ?>
+            </td>
             <td>
               <?php
                 $badge = ($status==='pending'?'warning':($status==='approved'?'success':($status==='rejected'?'danger':'secondary')));
               ?>
               <span class="badge text-bg-<?= $badge ?>"><?= htmlspecialchars(ucfirst($status)) ?></span>
               <?php if (!$rows): ?><small class="text-muted d-block">No submission</small><?php endif; ?>
+              <?php if ($includeIds && !$canInclude): ?><small class="text-danger d-block">Receipts required</small><?php endif; ?>
               <?php if ($rows && empty($includeIds)): ?><small class="text-muted d-block">Already in HQ</small><?php endif; ?>
             </td>
           </tr>
@@ -139,11 +171,17 @@ $overallInc = 0.0; $overallExp = 0.0; $overallBal = 0.0;
             <td class="text-end"><?= number_format($overallInc,2) ?></td>
             <td class="text-end"><?= number_format($overallExp,2) ?></td>
             <td class="text-end"><?= number_format($overallBal,2) ?></td>
+            <td class="text-end"><?= number_format($overallPass,2) ?></td>
+            <td></td>
             <td></td>
           </tr>
         </tfoot>
       </table>
     </div>
+
+    <?php if ($blockedOutlets > 0): ?>
+      <div class="alert alert-warning mt-3"><?= $blockedOutlets ?> outlet<?= $blockedOutlets === 1 ? '' : 's' ?> require receipts before they can be included.</div>
+    <?php endif; ?>
 
     <div class="row g-3 mt-2">
       <div class="col-md-8">
@@ -163,5 +201,55 @@ $overallInc = 0.0; $overallExp = 0.0; $overallBal = 0.0;
     </div>
   </form>
 </main>
+
+<script>
+  (function(){
+    const form = document.getElementById('hqBatchForm');
+    if (!form) return;
+    const totalEl = document.getElementById('summaryTotal');
+    const outletsEl = document.getElementById('summaryOutlets');
+    const subsEl = document.getElementById('summarySubs');
+    const receiptsEl = document.getElementById('summaryReceipts');
+    const checkboxes = Array.from(form.querySelectorAll('input[name="include_outlets[]"]'));
+
+    const updateSummary = () => {
+      let total = 0;
+      let outlets = 0;
+      let submissions = 0;
+      let receipts = 0;
+      checkboxes.forEach(cb => {
+        if (cb.disabled) return;
+        if (cb.checked) {
+          outlets += 1;
+          total += parseFloat(cb.dataset.pass || '0');
+          submissions += parseInt(cb.dataset.submissions || '0', 10) || 0;
+          receipts += parseInt(cb.dataset.receipts || '0', 10) || 0;
+        }
+      });
+      totalEl.textContent = total.toFixed(2);
+      outletsEl.textContent = outlets.toString();
+      subsEl.textContent = submissions.toString();
+      receiptsEl.textContent = receipts.toString();
+    };
+
+    checkboxes.forEach(cb => cb.addEventListener('change', updateSummary));
+    updateSummary();
+
+    form.addEventListener('submit', function (event) {
+      updateSummary();
+      const outlets = parseInt(outletsEl.textContent || '0', 10) || 0;
+      const total = parseFloat(totalEl.textContent || '0');
+      if (outlets === 0) {
+        event.preventDefault();
+        alert('Select at least one outlet to build the HQ batch.');
+        return;
+      }
+      const message = `You are sending RM ${total.toFixed(2)} across ${outlets} outlet${outlets === 1 ? '' : 's'}. Continue?`;
+      if (!window.confirm(message)) {
+        event.preventDefault();
+      }
+    });
+  })();
+</script>
 </body>
 </html>

@@ -51,7 +51,9 @@ $pages = max(1, (int)ceil($total / $pp));
 
 // --- list ---
 $sql = "
-  SELECT s.id, s.date, s.status, s.total_income, s.total_expenses, s.balance, o.name AS outlet
+  SELECT s.id, s.date, s.status, s.total_income, s.total_expenses, s.balance, s.pass_to_office,
+         (s.total_income - s.total_expenses - s.pass_to_office) AS net_cash,
+         o.name AS outlet
   FROM submissions s
   JOIN outlets o ON o.id = s.outlet_id
   $WHERE

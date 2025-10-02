@@ -2,9 +2,7 @@
 // /daily_closing/views/manager_submission_create.php
 require_once dirname(__DIR__) . '/includes/auth_guard.php';
 require_once dirname(__DIR__) . '/includes/db.php';
-
-
-
+require_once dirname(__DIR__) . '/includes/cash_metrics.php';
 guard_manager();
 $managerId = current_manager_id();
 
@@ -19,6 +17,10 @@ $today = (new DateTime('today'))->format('Y-m-d');
 
 $incomeCats  = ['Deposit','MP','Berhad','Market','Other'];
 $expenseCats = ['Expenses','Staff Salary','Staff Advance','Pass to HQ','Other'];
+$postedByOutlet = [];
+foreach ($outlets as $outlet) {
+  $postedByOutlet[(int)$outlet['id']] = outlet_posted_cash_on_hand($pdo, $managerId, (int)$outlet['id']);
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -64,7 +66,9 @@ $expenseCats = ['Expenses','Staff Salary','Staff Advance','Pass to HQ','Other'];
                 <select id="outlet_id" name="outlet_id" class="form-select" required>
                   <option value="" selected disabled>-- Choose outlet --</option>
                   <?php foreach ($outlets as $o): ?>
-                    <option value="<?= (int)$o['id'] ?>"><?= htmlspecialchars($o['name']) ?></option>
+                    <option value="<?= (int)$o['id'] ?>" data-posted="<?= number_format($postedByOutlet[(int)$o['id']] ?? 0, 2, '.', '') ?>">
+                      <?= htmlspecialchars($o['name']) ?>
+                    </option>
                   <?php endforeach; ?>
                 </select>
               </div>
@@ -97,9 +101,16 @@ $expenseCats = ['Expenses','Staff Salary','Staff Advance','Pass to HQ','Other'];
             <h6>Receipts <small class="text-muted">(PDF/JPG/PNG, up to 20MB each)</small></h6>
             <input class="form-control" type="file" name="receipts[]" id="receipts" multiple accept=".pdf,.jpg,.jpeg,.png">
 
-            <div class="mt-3">
-              <label class="form-label">Notes (optional)</label>
-              <textarea class="form-control" name="notes" rows="3" placeholder="Any remarks..."></textarea>
+            <div class="row g-3 mt-4">
+              <div class="col-md-6">
+                <label for="pass_to_office" class="form-label">Pass to Office (RM)</label>
+                <input type="number" inputmode="decimal" step="0.01" min="0" class="form-control" id="pass_to_office" name="pass_to_office" required placeholder="0.00">
+                <div class="form-text">Enter amount of cash physically sent to HQ today.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Notes (optional)</label>
+                <textarea class="form-control" name="notes" rows="3" placeholder="Any remarks..."></textarea>
+              </div>
             </div>
 
             <div class="d-flex gap-2 mt-4">
@@ -117,8 +128,11 @@ $expenseCats = ['Expenses','Staff Salary','Staff Advance','Pass to HQ','Other'];
           <h6 class="mb-3">Summary</h6>
           <div class="d-flex justify-content-between"><span>Income</span><strong>RM <span id="sumIncome">0.00</span></strong></div>
           <div class="d-flex justify-content-between"><span>Expenses</span><strong>RM <span id="sumExpense">0.00</span></strong></div>
+          <div class="d-flex justify-content-between"><span>Pass to Office</span><strong>RM <span id="sumPass">0.00</span></strong></div>
           <hr>
-          <div class="d-flex justify-content-between"><span>Balance</span><strong>RM <span id="sumBalance">0.00</span></strong></div>
+          <div class="d-flex justify-content-between"><span>Net (Income − Expenses)</span><strong>RM <span id="sumBalance">0.00</span></strong></div>
+          <div class="d-flex justify-content-between"><span>Old Cash on Hand</span><strong>RM <span id="oldCoh">0.00</span></strong></div>
+          <div class="d-flex justify-content-between"><span>New Cash on Hand</span><strong>RM <span id="newCoh">0.00</span></strong></div>
         </div>
       </div>
     </div>
@@ -128,6 +142,7 @@ $expenseCats = ['Expenses','Staff Salary','Staff Advance','Pass to HQ','Other'];
 <script>
 const incomeCats  = <?= json_encode($incomeCats) ?>;
 const expenseCats = <?= json_encode($expenseCats) ?>;
+const postedByOutlet = <?= json_encode($postedByOutlet) ?>;
 
 function money(v){ const n = parseFloat(v); return isNaN(n)?0:n; }
 function fmt(n){ return n.toFixed(2); }
@@ -152,9 +167,17 @@ function refreshTotals(){
   let inc=0, exp=0;
   document.querySelectorAll('#incomeTable .amt').forEach(i=>inc += money(i.value));
   document.querySelectorAll('#expenseTable .amt').forEach(i=>exp += money(i.value));
+  const pass = money(document.getElementById('pass_to_office').value);
+  const outlet = document.getElementById('outlet_id').value;
+  const oldCoh = outlet && postedByOutlet[outlet] ? parseFloat(postedByOutlet[outlet]) : 0;
+  const net = inc - exp;
+  const newCoh = oldCoh + net - pass;
   document.getElementById('sumIncome').textContent = fmt(inc);
   document.getElementById('sumExpense').textContent = fmt(exp);
-  document.getElementById('sumBalance').textContent = fmt(inc-exp);
+  document.getElementById('sumPass').textContent = fmt(pass);
+  document.getElementById('sumBalance').textContent = fmt(net);
+  document.getElementById('oldCoh').textContent = fmt(oldCoh);
+  document.getElementById('newCoh').textContent = fmt(newCoh);
 }
 
 function attachRowBehaviors(scope){
@@ -186,13 +209,32 @@ document.getElementById('addExpense').addEventListener('click', ()=>{
 document.getElementById('addIncome').click();
 document.getElementById('addExpense').click();
 
+document.getElementById('outlet_id').addEventListener('change', refreshTotals);
+document.getElementById('pass_to_office').addEventListener('input', e=>{
+  const value = e.target.value;
+  if (value !== '' && !/^\d+(\.\d{0,2})?$/.test(value)) {
+    e.target.classList.add('is-invalid');
+  } else {
+    e.target.classList.remove('is-invalid');
+  }
+  refreshTotals();
+});
+
 // basic submit guard: outlet selected + at least one positive amount
 document.getElementById('submissionForm').addEventListener('submit', (e)=>{
   const outletSel = document.getElementById('outlet_id');
   if (!outletSel.value) { e.preventDefault(); alert('Please choose an outlet.'); return; }
   const hasPos = [...document.querySelectorAll('.amt')].some(x => parseFloat(x.value||'0')>0);
   if (!hasPos) { e.preventDefault(); alert('Please enter at least one positive amount in Income or Expenses.'); }
+  const passField = document.getElementById('pass_to_office');
+  if (passField.value === '' || parseFloat(passField.value) < 0) {
+    e.preventDefault();
+    alert('Enter a valid Pass to Office amount.');
+    return;
+  }
 });
+
+refreshTotals();
 </script>
 </body>
 </html>

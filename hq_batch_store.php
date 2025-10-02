@@ -41,9 +41,10 @@ $params = $submissionIds;
 array_unshift($params, $managerId, $date);
 
 $sql = "
-  SELECT s.id, s.total_income, s.total_expenses, s.balance
+  SELECT s.id, s.total_income, s.total_expenses, s.balance, s.pass_to_office,
+         (SELECT COUNT(*) FROM receipts r WHERE r.submission_id = s.id) AS receipts_count
   FROM submissions s
-  WHERE s.manager_id = ? AND s.date = ? 
+  WHERE s.manager_id = ? AND s.date = ?
     AND s.id IN ($placeholders)
     AND s.submitted_to_hq_at IS NULL
 ";
@@ -57,12 +58,18 @@ if (count($rows) !== count($submissionIds)) {
     exit;
 }
 
-// Totals
-$overallInc=0.0; $overallExp=0.0; $overallBal=0.0;
+// Totals + validation
+$overallInc=0.0; $overallExp=0.0; $overallBal=0.0; $overallPass=0.0;
 foreach ($rows as $r) {
+    if ((int)$r['receipts_count'] === 0) {
+        $_SESSION['flash_error'] = 'Cannot submit: some submissions are missing receipts.';
+        header('Location: /daily_closing/views/report_hq.php?date='.urlencode($date));
+        exit;
+    }
     $overallInc += (float)$r['total_income'];
     $overallExp += (float)$r['total_expenses'];
     $overallBal += (float)$r['balance'];
+    $overallPass += (float)$r['pass_to_office'];
 }
 
 try {
@@ -70,10 +77,10 @@ try {
 
     // Create HQ batch
     $stmt = $pdo->prepare("
-      INSERT INTO hq_batches (manager_id, report_date, status, overall_total_income, overall_total_expenses, overall_balance, notes)
-      VALUES (?, ?, 'submitted', ?, ?, ?, ?)
+      INSERT INTO hq_batches (manager_id, report_date, status, overall_total_income, overall_total_expenses, overall_pass_to_office, overall_balance, notes)
+      VALUES (?, ?, 'submitted', ?, ?, ?, ?, ?)
     ");
-    $stmt->execute([$managerId, $date, $overallInc, $overallExp, $overallBal, $notes]);
+    $stmt->execute([$managerId, $date, $overallInc, $overallExp, $overallPass, $overallBal, $notes]);
     $batchId = (int)$pdo->lastInsertId();
 
     // Link submissions
